@@ -1,36 +1,67 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+# Cleaning Employee Management - Admin Panel
+
+This is a production-ready Next.js App Router admin panel for the Cleaning Employee Management System.
+
+## Features
+
+- **Authentication**: Fully protected routes using Supabase Auth
+- **Dashboard**: High-level overview of jobs and employees
+- **Job Management**: Complete CRUD operations for jobs
+- **Employee Assignment**: Assign jobs to existing employees
+- **Realtime Updates**: Jobs list automatically refreshes using Supabase Realtime subscriptions
+- **UI Design**: Modern, simple, and clean Dark Mode interface built using Tailwind CSS v4 and Lucide React.
 
 ## Getting Started
 
-First, run the development server:
+### 1. Prerequisites
+
+Make sure you have Node or another package manager and a Supabase project created.
+
+### 2. Environment Variables
+
+Create a `.env.local` file in the root of the project to add your Supabase credentials. Do not commit this file to version control.
+
+```bash
+NEXT_PUBLIC_SUPABASE_URL=https://your-project-url.supabase.co
+NEXT_PUBLIC_SUPABASE_ANON_KEY=your-public-anon-key
+```
+
+### 3. Database Requirements
+
+Ensure your Supabase PostgreSQL database has the following tables structure established:
+
+**Profiles (`profiles`)**
+- `id` (uuid, primary key, references auth.users)
+- `full_name` (text)
+- `role` (text: 'admin' | 'employee')
+- `email` (text)
+
+**Jobs (`jobs`)**
+- `id` (uuid, primary key)
+- `customer_name` (text)
+- `location` (text)
+- `service` (text)
+- `scheduled_start` (timestamp with timezone)
+- `status` (text: 'open' | 'in_progress' | 'completed')
+- `assigned_to` (uuid, foreign key to profiles)
+- `notes` (text)
+
+Make sure you also enable **Realtime** on the `jobs` table to utilize live refresh functionality. You also need an email/password account created with the `role` equal to `admin` in the `profiles` table to log in.
+
+### 4. Installation
+
+Since this has predefined dependencies, install them using:
+
+```bash
+npm install
+```
+
+### 5. Running the Application
+
+To run the development server locally:
 
 ```bash
 npm run dev
-# or
-yarn dev
-# or
-pnpm dev
-# or
-bun dev
 ```
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
-
-You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
-
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
-
-## Learn More
-
-To learn more about Next.js, take a look at the following resources:
-
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
-
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
-
-## Deploy on Vercel
-
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
-
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+Open [http://localhost:3000](http://localhost:3000) with your browser to see the result. You will be automatically redirected to the login page.
