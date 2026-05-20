@@ -6,32 +6,9 @@ export type Json =
   | { [key: string]: Json | undefined }
   | Json[]
 
-export interface Database {
+export type Database = {
   public: {
     Tables: {
-      companies: {
-        Row: {
-          id: string
-          name: string
-          slug: string
-          created_at: string
-          updated_at: string
-        }
-        Insert: {
-          id?: string
-          name: string
-          slug: string
-          created_at?: string
-          updated_at?: string
-        }
-        Update: {
-          id?: string
-          name?: string
-          slug?: string
-          created_at?: string
-          updated_at?: string
-        }
-      }
       profiles: {
         Row: {
           id: string
@@ -63,7 +40,17 @@ export interface Database {
           created_at?: string
           updated_at?: string
         }
+        Relationships: [
+          {
+            foreignKeyName: "profiles_company_id_fkey"
+            columns: ["company_id"]
+            isOneToOne: false
+            referencedRelation: "companies"
+            referencedColumns: ["id"]
+          }
+        ]
       }
+
       jobs: {
         Row: {
           id: string
@@ -116,6 +103,54 @@ export interface Database {
           created_at?: string
           updated_at?: string
         }
+        Relationships: [
+          {
+            foreignKeyName: "jobs_company_id_fkey"
+            columns: ["company_id"]
+            isOneToOne: false
+            referencedRelation: "companies"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "jobs_assigned_to_fkey"
+            columns: ["assigned_to"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "jobs_created_by_fkey"
+            columns: ["created_by"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          }
+        ]
+      }
+
+      companies: {
+        Row: {
+          id: string
+          name: string
+          slug: string
+          created_at: string
+          updated_at: string
+        }
+        Insert: {
+          id?: string
+          name: string
+          slug: string
+          created_at?: string
+          updated_at?: string
+        }
+        Update: {
+          id?: string
+          name?: string
+          slug?: string
+          created_at?: string
+          updated_at?: string
+        }
+        Relationships: []
       }
     }
     Views: {
@@ -123,20 +158,12 @@ export interface Database {
     }
     Functions: {
       current_user_company_id: {
-        Args: Record<string, never>
+        Args: Record<PropertyKey, never>
         Returns: string | null
       }
       current_user_role: {
-        Args: Record<string, never>
+        Args: Record<PropertyKey, never>
         Returns: "admin" | "employee" | null
-      }
-      set_updated_at: {
-        Args: Record<string, never>
-        Returns: unknown
-      }
-      handle_new_user: {
-        Args: Record<string, never>
-        Returns: unknown
       }
     }
     Enums: {

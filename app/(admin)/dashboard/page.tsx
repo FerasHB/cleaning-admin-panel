@@ -90,7 +90,7 @@ export default async function DashboardPage() {
                   <div key={job.id} className="flex items-center justify-between border-b pb-4 last:border-0 last:pb-0">
                     <div className="space-y-1">
                       <p className="font-medium leading-none">{job.customer_name}</p>
-                      <p className="text-sm text-muted-foreground">{job.service}</p>
+                      <p className="text-sm text-muted-foreground">{job.service_name}</p>
                     </div>
                     <div className="flex items-center gap-4">
                       <Badge

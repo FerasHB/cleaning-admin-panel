@@ -1,12 +1,13 @@
 import { createServerClient } from "@supabase/ssr"
 import { NextResponse, type NextRequest } from "next/server"
+import { Database } from "./database.types"
 
 export async function updateSession(request: NextRequest) {
   let supabaseResponse = NextResponse.next({
     request,
   })
 
-  const supabase = createServerClient(
+  const supabase = createServerClient<Database>(
     process.env.NEXT_PUBLIC_SUPABASE_URL!,
     process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
     {
@@ -15,50 +16,50 @@ export async function updateSession(request: NextRequest) {
           return request.cookies.getAll()
         },
         setAll(cookiesToSet) {
-          cookiesToSet.forEach(({ name, value, options }) => request.cookies.set(name, value))
+          cookiesToSet.forEach(({ name, value, options }) => {
+            request.cookies.set(name, value)
+          })
+
           supabaseResponse = NextResponse.next({
             request,
           })
-          cookiesToSet.forEach(({ name, value, options }) =>
+
+          cookiesToSet.forEach(({ name, value, options }) => {
             supabaseResponse.cookies.set(name, value, options)
-          )
+          })
         },
       },
     }
   )
 
-  // This prevents the edge function from rendering on every request
   const {
     data: { user },
   } = await supabase.auth.getUser()
 
-  const isAuthPage = request.nextUrl.pathname.startsWith('/login')
-  const isProtectedPage = request.nextUrl.pathname.startsWith('/dashboard') ||
-                          request.nextUrl.pathname.startsWith('/jobs') ||
-                          request.nextUrl.pathname.startsWith('/employees')
+  const isAuthPage = request.nextUrl.pathname.startsWith("/login")
+  const isProtectedPage =
+    request.nextUrl.pathname.startsWith("/dashboard") ||
+    request.nextUrl.pathname.startsWith("/jobs") ||
+    request.nextUrl.pathname.startsWith("/employees")
 
   if (!user && isProtectedPage) {
-    return NextResponse.redirect(new URL('/login', request.url))
+    return NextResponse.redirect(new URL("/login", request.url))
   }
 
   if (user) {
-    // Check if user is an admin
     const { data: profile } = await supabase
-      .from('profiles')
-      .select('role')
-      .eq('id', user.id)
+      .from("profiles")
+      .select("role")
+      .eq("id", user.id)
       .single()
 
-    if (profile?.role !== 'admin' && isProtectedPage) {
-      // Non-admins shouldn't access dashboard at all, we could have an unauth page or send back to somewhere else.
-      // We will redirect them to a generic access denied or sign them out. 
-      // For now, redirect to /login to avoid loops
+    if (profile?.role !== "admin" && isProtectedPage) {
       await supabase.auth.signOut()
-      return NextResponse.redirect(new URL('/login?error=access_denied', request.url))
+      return NextResponse.redirect(new URL("/login?error=access_denied", request.url))
     }
 
     if (isAuthPage) {
-        return NextResponse.redirect(new URL('/dashboard', request.url))
+      return NextResponse.redirect(new URL("/dashboard", request.url))
     }
   }
 
