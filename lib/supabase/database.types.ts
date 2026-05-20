@@ -165,6 +165,14 @@ export type Database = {
         Args: Record<PropertyKey, never>
         Returns: "admin" | "employee" | null
       }
+      register_admin_with_company: {
+        Args: {
+          p_full_name: string
+          p_company_name: string
+          p_company_slug: string
+        }
+        Returns: Json
+      }
     }
     Enums: {
       app_role: "admin" | "employee"

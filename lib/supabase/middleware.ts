@@ -36,11 +36,12 @@ export async function updateSession(request: NextRequest) {
     data: { user },
   } = await supabase.auth.getUser()
 
-  const isAuthPage = request.nextUrl.pathname.startsWith("/login")
+  const pathname = request.nextUrl.pathname
+  const isAuthPage = pathname.startsWith("/login") || pathname.startsWith("/register")
   const isProtectedPage =
-    request.nextUrl.pathname.startsWith("/dashboard") ||
-    request.nextUrl.pathname.startsWith("/jobs") ||
-    request.nextUrl.pathname.startsWith("/employees")
+    pathname.startsWith("/dashboard") ||
+    pathname.startsWith("/jobs") ||
+    pathname.startsWith("/employees")
 
   if (!user && isProtectedPage) {
     return NextResponse.redirect(new URL("/login", request.url))
@@ -49,16 +50,34 @@ export async function updateSession(request: NextRequest) {
   if (user) {
     const { data: profile } = await supabase
       .from("profiles")
-      .select("role")
+      .select("role, company_id")
       .eq("id", user.id)
       .single()
 
+    // Non-admin or missing profile: block access and sign out
     if (profile?.role !== "admin" && isProtectedPage) {
       await supabase.auth.signOut()
       return NextResponse.redirect(new URL("/login?error=access_denied", request.url))
     }
 
-    if (isAuthPage) {
+    // Admin with no company_id: setup did not complete — send to register
+    // so they can complete company creation. Exempt /register itself to avoid a loop.
+    if (
+      profile?.role === "admin" &&
+      !profile.company_id &&
+      isProtectedPage
+    ) {
+      return NextResponse.redirect(new URL("/register?incomplete=true", request.url))
+    }
+
+    // Authenticated users should not see login or register pages —
+    // EXCEPT an admin with no company_id is allowed to stay on /register
+    // so they can complete company setup (the ?incomplete=true recovery path).
+    const isCompanySetupPage =
+      pathname.startsWith("/register") &&
+      profile?.role === "admin" &&
+      !profile.company_id
+    if (isAuthPage && !isCompanySetupPage) {
       return NextResponse.redirect(new URL("/dashboard", request.url))
     }
   }
