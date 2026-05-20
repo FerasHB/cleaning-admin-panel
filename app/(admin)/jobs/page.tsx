@@ -73,7 +73,7 @@ export default function JobsPage() {
   const filteredJobs = jobs.filter(
     (job) =>
       (job.customer_name?.toLowerCase() || "").includes(search.toLowerCase()) ||
-      (job.service?.toLowerCase() || "").includes(search.toLowerCase())
+      (job.service_name?.toLowerCase() || "").includes(search.toLowerCase())
   )
 
   return (
@@ -150,7 +150,7 @@ export default function JobsPage() {
               filteredJobs.map((job) => (
                 <TableRow key={job.id}>
                   <TableCell className="font-medium">{job.customer_name}</TableCell>
-                  <TableCell>{job.service}</TableCell>
+                  <TableCell>{job.service_name}</TableCell>
                   <TableCell className="truncate max-w-[200px]">{job.location_address}</TableCell>
                   <TableCell>
                     {job.scheduled_start ? new Date(job.scheduled_start).toLocaleDateString() : 'N/A'}

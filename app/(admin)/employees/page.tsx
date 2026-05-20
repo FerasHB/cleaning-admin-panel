@@ -52,7 +52,6 @@ export default async function EmployeesPage() {
           <TableHeader>
             <TableRow>
               <TableHead>Name</TableHead>
-              <TableHead>Email</TableHead>
               <TableHead>Role</TableHead>
               <TableHead className="text-center">Total Jobs</TableHead>
               <TableHead className="text-center">Open/In Progress</TableHead>
@@ -61,7 +60,7 @@ export default async function EmployeesPage() {
           <TableBody>
             {!employees || employees.length === 0 ? (
               <TableRow>
-                <TableCell colSpan={5} className="h-auto p-0 border-b-0">
+                <TableCell colSpan={4} className="h-auto p-0 border-b-0">
                   <EmptyState
                     icon={Users}
                     title="No employees found"
