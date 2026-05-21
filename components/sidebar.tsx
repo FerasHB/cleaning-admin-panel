@@ -1,6 +1,7 @@
 "use client"
 
 import * as React from "react"
+import { useState, useEffect } from "react"
 import Link from "next/link"
 import { usePathname } from "next/navigation"
 import { Briefcase, LayoutDashboard, LogOut, Users, Settings } from "lucide-react"
@@ -31,6 +32,38 @@ export function Sidebar({ className }: React.HTMLAttributes<HTMLDivElement>) {
   const router = useRouter()
   const supabase = createClient()
 
+  const [companyName, setCompanyName] = useState<string | null>(null)
+
+  useEffect(() => {
+    const fetchCompanyName = async () => {
+      // Step 1: get the current user
+      const { data: { user } } = await supabase.auth.getUser()
+      if (!user) return
+
+      // Step 2: get profile (which has company_id)
+      const { data: profile } = await supabase
+        .from("profiles")
+        .select("company_id")
+        .eq("id", user.id)
+        .single()
+
+      if (!profile?.company_id) return
+
+      // Step 3: get company name
+      const { data: company } = await supabase
+        .from("companies")
+        .select("name")
+        .eq("id", profile.company_id)
+        .single()
+
+      if (company?.name) {
+        setCompanyName(company.name)
+      }
+    }
+
+    fetchCompanyName()
+  }, []) // runs once on mount
+
   const handleLogout = async () => {
     await supabase.auth.signOut()
     router.push("/login")
@@ -41,7 +74,9 @@ export function Sidebar({ className }: React.HTMLAttributes<HTMLDivElement>) {
     <div className={cn("fixed hidden h-screen w-64 flex-col border-r bg-card md:flex", className)}>
       <div className="flex h-14 items-center border-b px-4 lg:h-[60px] lg:px-6">
         <Link href="/" className="flex items-center gap-2 font-semibold">
-          <span className="text-primary tracking-tight">Cleaning Admin Panels</span>
+          <span className="text-primary tracking-tight">
+            {companyName ?? "Cleaning Admin"}
+          </span>
         </Link>
       </div>
       <div className="flex-1 overflow-auto py-2">
@@ -56,7 +91,7 @@ export function Sidebar({ className }: React.HTMLAttributes<HTMLDivElement>) {
                 className={cn(
                   "flex items-center gap-3 rounded-lg px-3 py-2 transition-all",
                   isActive
-                    ? "bg-muted text-foreground"
+                    ? "bg-primary/10 text-primary font-semibold"
                     : "text-muted-foreground hover:bg-muted hover:text-foreground"
                 )}
               >

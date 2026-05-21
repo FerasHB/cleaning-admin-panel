@@ -23,25 +23,55 @@
 }
 
 :root {
-  /* Dark mode by default */
-  --background: #09090b;
-  --foreground: #fafafa;
-  --card: #09090b;
-  --card-foreground: #fafafa;
-  --border: #27272a;
-  --input: #27272a;
-  --primary: #fafafa;
-  --primary-foreground: #18181b;
-  --secondary: #27272a;
-  --secondary-foreground: #fafafa;
-  --destructive: #7f1d1d;
-  --destructive-foreground: #fef2f2;
-  --muted: #27272a;
-  --muted-foreground: #a1a1aa;
+  color-scheme: light;
+  --background: #f8f9fc;
+  --foreground: #111827;
+  --card: #ffffff;
+  --card-foreground: #111827;
+  --border: #e5e7eb;
+  --input: #e5e7eb;
+  --primary: #2563eb;
+  --primary-foreground: #ffffff;
+  --secondary: #f3f4f6;
+  --secondary-foreground: #374151;
+  --destructive: #dc2626;
+  --destructive-foreground: #ffffff;
+  --muted: #f3f4f6;
+  --muted-foreground: #6b7280;
   --radius: 0.5rem;
+}
+
+/* Force light theme regardless of OS dark mode preference */
+@media (prefers-color-scheme: dark) {
+  :root {
+    color-scheme: light;
+    --background: #f8f9fc;
+    --foreground: #111827;
+    --card: #ffffff;
+    --card-foreground: #111827;
+    --border: #e5e7eb;
+    --input: #e5e7eb;
+    --primary: #2563eb;
+    --primary-foreground: #ffffff;
+    --secondary: #f3f4f6;
+    --secondary-foreground: #374151;
+    --destructive: #dc2626;
+    --destructive-foreground: #ffffff;
+    --muted: #f3f4f6;
+    --muted-foreground: #6b7280;
+  }
 }
 
 body {
   background-color: var(--background);
   color: var(--foreground);
+}
+
+/* Prevent OS dark mode from overriding native form control appearance */
+input,
+select,
+textarea {
+  color-scheme: light;
+  background-color: #ffffff;
+  color: #111827;
 }
