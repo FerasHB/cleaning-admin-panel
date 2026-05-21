@@ -22,7 +22,7 @@ import {
   CardTitle,
 } from "@/components/ui/card";
 import { EmptyState } from "@/components/ui/empty-state";
-import { Users, Plus, X } from "lucide-react";
+import { Users, Plus, X, ShieldCheck } from "lucide-react";
 import { Database } from "@/lib/supabase/database.types";
 
 type Profile = Database["public"]["Tables"]["profiles"]["Row"];
@@ -168,20 +168,20 @@ export default function EmployeesPage() {
   return (
     <div className="space-y-6">
       <PageHeader
-        title="Mitarbeiter"
-        description="Manage your company's employees."
+        title="Employees"
+        description="Manage your team and track job assignments."
       >
         <Button onClick={openForm}>
           <Plus className="mr-2 h-4 w-4" />
-          Mitarbeiter hinzufügen
+          Add Employee
         </Button>
       </PageHeader>
 
       {/* Add Employee Form */}
       {showForm && (
         <Card>
-          <CardHeader className="flex flex-row items-center justify-between pb-2">
-            <CardTitle className="text-base">Add new employee</CardTitle>
+          <CardHeader className="flex flex-row items-center justify-between border-b pb-4">
+            <CardTitle className="text-sm font-semibold">Add New Employee</CardTitle>
             <Button
               variant="ghost"
               size="icon"
@@ -228,7 +228,7 @@ export default function EmployeesPage() {
                   <Input
                     id="emp-email"
                     type="email"
-                    placeholder="mitarbeiter@firma.de"
+                    placeholder="employee@company.com"
                     required
                     value={email}
                     onChange={(e) => setEmail(e.target.value)}
@@ -286,33 +286,37 @@ export default function EmployeesPage() {
       )}
 
       {/* Employee Table */}
-      <Card>
+      <Card className="overflow-hidden">
+        <div className="flex items-center justify-between border-b px-5 py-3">
+          <p className="text-sm font-semibold">Team Members</p>
+          <p className="text-xs text-muted-foreground">
+            {employees.length} {employees.length === 1 ? "employee" : "employees"}
+          </p>
+        </div>
         <Table>
           <TableHeader>
-            <TableRow>
-              <TableHead>Name</TableHead>
+            <TableRow className="bg-muted/40 hover:bg-muted/40">
+              <TableHead className="pl-5">Name</TableHead>
               <TableHead>Role</TableHead>
               <TableHead className="text-center">Total Jobs</TableHead>
-              <TableHead className="text-center">Open / In Progress</TableHead>
+              <TableHead className="text-center">Open</TableHead>
+              <TableHead className="text-center pr-5">In Progress</TableHead>
             </TableRow>
           </TableHeader>
           <TableBody>
             {loading ? (
               <TableRow>
-                <TableCell
-                  colSpan={4}
-                  className="h-24 text-center text-muted-foreground"
-                >
-                  Loading employees...
+                <TableCell colSpan={5} className="h-24 text-center text-muted-foreground text-sm">
+                  Loading employees…
                 </TableCell>
               </TableRow>
             ) : employees.length === 0 ? (
               <TableRow>
-                <TableCell colSpan={4} className="h-auto p-0 border-b-0">
+                <TableCell colSpan={5} className="h-auto p-0 border-b-0">
                   <EmptyState
                     icon={Users}
                     title="No employees yet"
-                    description='Click "Mitarbeiter hinzufügen" to add your first employee.'
+                    description='Click "Add Employee" to add your first team member.'
                   />
                 </TableCell>
               </TableRow>
@@ -324,21 +328,44 @@ export default function EmployeesPage() {
                   in_progress: 0,
                   completed: 0,
                 };
+                const initials = (emp.full_name ?? "?")
+                  .split(" ")
+                  .map((n) => n[0])
+                  .slice(0, 2)
+                  .join("")
+                  .toUpperCase();
                 return (
-                  <TableRow key={emp.id}>
-                    <TableCell className="font-medium">
-                      {emp.full_name}
+                  <TableRow key={emp.id} className="hover:bg-muted/30">
+                    <TableCell className="pl-5">
+                      <div className="flex items-center gap-3">
+                        <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-primary/10 text-xs font-semibold text-primary">
+                          {initials}
+                        </div>
+                        <span className="font-medium">{emp.full_name}</span>
+                      </div>
                     </TableCell>
                     <TableCell>
-                      <Badge variant="secondary" className="capitalize">
-                        {emp.role}
-                      </Badge>
+                      <div className="flex items-center gap-1.5 text-xs text-muted-foreground">
+                        <ShieldCheck className="h-3.5 w-3.5" />
+                        <span className="capitalize">{emp.role}</span>
+                      </div>
                     </TableCell>
-                    <TableCell className="text-center">{stats.total}</TableCell>
                     <TableCell className="text-center">
-                      <span className="text-muted-foreground">
-                        {stats.open} / {stats.in_progress}
-                      </span>
+                      <span className="font-medium">{stats.total}</span>
+                    </TableCell>
+                    <TableCell className="text-center">
+                      {stats.open > 0 ? (
+                        <Badge variant="warning">{stats.open}</Badge>
+                      ) : (
+                        <span className="text-xs text-muted-foreground">—</span>
+                      )}
+                    </TableCell>
+                    <TableCell className="text-center pr-5">
+                      {stats.in_progress > 0 ? (
+                        <Badge variant="info">{stats.in_progress}</Badge>
+                      ) : (
+                        <span className="text-xs text-muted-foreground">—</span>
+                      )}
                     </TableCell>
                   </TableRow>
                 );

@@ -4,7 +4,7 @@ import * as React from "react"
 import { useState, useEffect } from "react"
 import Link from "next/link"
 import { usePathname } from "next/navigation"
-import { Briefcase, LayoutDashboard, LogOut, Users, Settings } from "lucide-react"
+import { Briefcase, LayoutDashboard, LogOut, Users } from "lucide-react"
 import { cn } from "@/lib/utils"
 import { createClient } from "@/lib/supabase/client"
 import { useRouter } from "next/navigation"
@@ -102,13 +102,15 @@ export function Sidebar({ className }: React.HTMLAttributes<HTMLDivElement>) {
           })}
         </nav>
       </div>
-      <div className="mt-auto p-4 border-t">
+      <div className="border-t p-3">
         <button
           onClick={handleLogout}
-          className="flex w-full items-center gap-3 rounded-lg px-3 py-2 text-sm font-medium text-muted-foreground transition-all hover:bg-destructive/10 hover:text-destructive"
+          className="flex w-full items-center gap-3 rounded-lg px-3 py-2.5 text-sm font-medium text-muted-foreground transition-colors hover:bg-destructive/8 hover:text-destructive"
         >
-          <LogOut className="h-4 w-4" />
-          Logout
+          <div className="flex h-7 w-7 items-center justify-center rounded-md bg-muted">
+            <LogOut className="h-3.5 w-3.5" />
+          </div>
+          <span>Sign out</span>
         </button>
       </div>
     </div>
