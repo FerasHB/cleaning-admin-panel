@@ -1,6 +1,6 @@
 "use client"
 
-import { useEffect, useState } from "react"
+import { Suspense, useEffect, useState } from "react"
 import { useRouter, useSearchParams } from "next/navigation"
 import Link from "next/link"
 import { createClient } from "@/lib/supabase/client"
@@ -26,7 +26,7 @@ function slugify(name: string): string {
   return `${base}-${suffix}`
 }
 
-export default function RegisterPage() {
+function RegisterContent() {
   const searchParams = useSearchParams()
   const isIncomplete = searchParams.get("incomplete") === "true"
 
@@ -315,5 +315,13 @@ export default function RegisterPage() {
         </Card>
       </div>
     </div>
+  )
+}
+
+export default function RegisterPage() {
+  return (
+    <Suspense>
+      <RegisterContent />
+    </Suspense>
   )
 }
