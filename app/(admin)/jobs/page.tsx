@@ -14,6 +14,19 @@ import { Briefcase, Edit, Plus, Search } from "lucide-react"
 
 type Job = any // You can type this better using Database['public']['Tables']['jobs']['Row']
 
+// Maps raw DB status values → display label and badge variant
+const STATUS_LABEL: Record<string, string> = {
+  open:        "Open",
+  in_progress: "In Progress",
+  completed:   "Completed",
+}
+
+const STATUS_VARIANT: Record<string, "warning" | "info" | "success"> = {
+  open:        "warning",
+  in_progress: "info",
+  completed:   "success",
+}
+
 export default function JobsPage() {
   const [jobs, setJobs] = useState<Job[]>([])
   const [loading, setLoading] = useState(true)
@@ -87,29 +100,28 @@ export default function JobsPage() {
         </Link>
       </PageHeader>
 
-      <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
-        <div className="relative w-full max-w-sm gap-2 flex items-center">
-          <Search className="absolute left-2.5 h-4 w-4 text-muted-foreground" />
+      <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
+        <div className="relative flex-1 max-w-xs">
+          <Search className="absolute left-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-muted-foreground" />
           <Input
             type="search"
-            placeholder="Search by customer or service..."
-            className="pl-8"
+            placeholder="Search customer or service…"
+            className="h-8 pl-8 text-sm"
             value={search}
             onChange={(e) => setSearch(e.target.value)}
           />
         </div>
-        <div className="w-full sm:w-[200px]">
-          <Select
-            onChange={(e) =>
-              setStatusFilter(e.target.value as "all" | "open" | "in_progress" | "completed")
-            }
-          >
-            <option value="all">All Statuses</option>
-            <option value="open">Open</option>
-            <option value="in_progress">In Progress</option>
-            <option value="completed">Completed</option>
-          </Select>
-        </div>
+        <Select
+          className="h-8 w-full text-sm sm:w-[160px]"
+          onChange={(e) =>
+            setStatusFilter(e.target.value as "all" | "open" | "in_progress" | "completed")
+          }
+        >
+          <option value="all">All Statuses</option>
+          <option value="open">Open</option>
+          <option value="in_progress">In Progress</option>
+          <option value="completed">Completed</option>
+        </Select>
       </div>
 
       <div className="rounded-md border bg-card">
@@ -156,16 +168,8 @@ export default function JobsPage() {
                     {job.scheduled_start ? new Date(job.scheduled_start).toLocaleDateString() : 'N/A'}
                   </TableCell>
                   <TableCell>
-                    <Badge
-                      variant={
-                        job.status === "completed"
-                          ? "default"
-                          : job.status === "in_progress"
-                            ? "secondary"
-                            : "outline"
-                      }
-                    >
-                      {job.status.replace("_", " ")}
+                    <Badge variant={STATUS_VARIANT[job.status] ?? "outline"}>
+                      {STATUS_LABEL[job.status] ?? job.status}
                     </Badge>
                   </TableCell>
                   <TableCell className="text-right">
