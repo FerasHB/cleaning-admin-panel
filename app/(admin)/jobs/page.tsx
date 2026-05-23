@@ -1,8 +1,8 @@
 "use client"
 
-import { useEffect, useState } from "react"
+import { useState } from "react"
 import Link from "next/link"
-import { createClient } from "@/lib/supabase/client"
+import { useAdminJobs } from "@/hooks/use-admin-jobs"
 import { PageHeader } from "@/components/ui/page-header"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
@@ -11,10 +11,10 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@
 import { Badge } from "@/components/ui/badge"
 import { EmptyState } from "@/components/ui/empty-state"
 import { Briefcase, Edit, Plus, Search } from "lucide-react"
+import { Database } from "@/lib/supabase/database.types"
 
-type Job = any // You can type this better using Database['public']['Tables']['jobs']['Row']
+type Job = Database["public"]["Tables"]["jobs"]["Row"]
 
-// Maps raw DB status values → display label and badge variant
 const STATUS_LABEL: Record<string, string> = {
   open:        "Open",
   in_progress: "In Progress",
@@ -28,66 +28,17 @@ const STATUS_VARIANT: Record<string, "warning" | "info" | "success"> = {
 }
 
 export default function JobsPage() {
-  const [jobs, setJobs] = useState<Job[]>([])
-  const [loading, setLoading] = useState(true)
+  const { jobs, loading } = useAdminJobs()
   const [search, setSearch] = useState("")
-
-
-  const supabase = createClient()
   const [statusFilter, setStatusFilter] = useState<"all" | "open" | "in_progress" | "completed">("all")
-  const fetchJobs = async () => {
-    setLoading(true)
 
-    let query = supabase
-      .from("jobs")
-      .select("*")
-      .order("scheduled_start", { ascending: false })
-
-    if (statusFilter !== "all") {
-      query = query.eq("status", statusFilter)
-    }
-
-    const { data, error } = await query
-
-    if (error) {
-      console.error(error)
-    } else {
-      setJobs(data ?? [])
-    }
-
-    setLoading(false)
-  }
-
-  useEffect(() => {
-    fetchJobs()
-
-    // Realtime subscription
-    const channel = supabase
-      .channel('schema-db-changes')
-      .on(
-        'postgres_changes',
-        {
-          event: '*',
-          schema: 'public',
-          table: 'jobs',
-        },
-        () => {
-          fetchJobs() // Re-fetch all on any change
-        }
-      )
-      .subscribe()
-
-    return () => {
-      supabase.removeChannel(channel)
-    }
-  }, [statusFilter]) // re-run when status filter changes
-
-  // Client side search filter
-  const filteredJobs = jobs.filter(
-    (job) =>
-      (job.customer_name?.toLowerCase() || "").includes(search.toLowerCase()) ||
-      (job.service_name?.toLowerCase() || "").includes(search.toLowerCase())
-  )
+  const filteredJobs = jobs.filter((job: Job) => {
+    const matchesSearch =
+      (job.customer_name?.toLowerCase() ?? "").includes(search.toLowerCase()) ||
+      (job.service_name?.toLowerCase() ?? "").includes(search.toLowerCase())
+    const matchesStatus = statusFilter === "all" || job.status === statusFilter
+    return matchesSearch && matchesStatus
+  })
 
   return (
     <div className="space-y-6">
@@ -159,13 +110,13 @@ export default function JobsPage() {
                 </TableCell>
               </TableRow>
             ) : (
-              filteredJobs.map((job) => (
+              filteredJobs.map((job: Job) => (
                 <TableRow key={job.id}>
                   <TableCell className="font-medium">{job.customer_name}</TableCell>
                   <TableCell>{job.service_name}</TableCell>
                   <TableCell className="truncate max-w-[200px]">{job.location_address}</TableCell>
                   <TableCell>
-                    {job.scheduled_start ? new Date(job.scheduled_start).toLocaleDateString() : 'N/A'}
+                    {job.scheduled_start ? new Date(job.scheduled_start).toLocaleDateString() : "N/A"}
                   </TableCell>
                   <TableCell>
                     <Badge variant={STATUS_VARIANT[job.status] ?? "outline"}>

@@ -1,13 +1,17 @@
-import { createClient } from "@/lib/supabase/server"
+"use client"
+
+import { useEffect, useState } from "react"
+import Link from "next/link"
+import { createClient } from "@/lib/supabase/client"
+import { useAdminJobs } from "@/hooks/use-admin-jobs"
 import { PageHeader } from "@/components/ui/page-header"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Briefcase, CalendarDays, CheckCircle2, Clock, Users, ArrowRight, MapPin } from "lucide-react"
-import Link from "next/link"
 import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
 import { Database } from "@/lib/supabase/database.types"
 
-type Job = Database['public']['Tables']['jobs']['Row']
+type Job = Database["public"]["Tables"]["jobs"]["Row"]
 
 const STATUS_LABEL: Record<string, string> = {
   open:        "Open",
@@ -30,31 +34,20 @@ function formatDate(iso: string | null) {
   })
 }
 
-export default async function DashboardPage() {
-  const supabase = await createClient()
+export default function DashboardPage() {
+  const { jobs, loading: jobsLoading, counts } = useAdminJobs()
+  const recentJobs = jobs.slice(0, 5)
 
-  const todayStart = new Date()
-  todayStart.setHours(0, 0, 0, 0)
-  const todayEnd = new Date()
-  todayEnd.setHours(23, 59, 59, 999)
+  const supabase = createClient()
+  const [totalEmployees, setTotalEmployees] = useState<number>(0)
 
-  const [
-    { count: openJobs },
-    { count: inProgressJobs },
-    { count: completedJobs },
-    { count: totalEmployees },
-    { count: todayJobs },
-    { data: recentJobs },
-  ] = await Promise.all([
-    supabase.from("jobs").select("*", { count: "exact", head: true }).eq("status", "open"),
-    supabase.from("jobs").select("*", { count: "exact", head: true }).eq("status", "in_progress"),
-    supabase.from("jobs").select("*", { count: "exact", head: true }).eq("status", "completed"),
-    supabase.from("profiles").select("*", { count: "exact", head: true }).eq("role", "employee"),
-    supabase.from("jobs").select("*", { count: "exact", head: true })
-      .gte("scheduled_start", todayStart.toISOString())
-      .lte("scheduled_start", todayEnd.toISOString()),
-    supabase.from("jobs").select("*").order("scheduled_start", { ascending: false }).limit(5),
-  ])
+  useEffect(() => {
+    supabase
+      .from("profiles")
+      .select("*", { count: "exact", head: true })
+      .eq("role", "employee")
+      .then(({ count }) => setTotalEmployees(count ?? 0))
+  }, [])
 
   return (
     <div className="space-y-6">
@@ -84,7 +77,9 @@ export default async function DashboardPage() {
             </div>
           </CardHeader>
           <CardContent className="px-4 pb-4 pt-0">
-            <p className="text-2xl font-bold text-amber-900">{openJobs ?? 0}</p>
+            <p className="text-2xl font-bold text-amber-900">
+              {jobsLoading ? "—" : counts.open}
+            </p>
             <p className="mt-0.5 text-xs text-amber-600">Awaiting assignment</p>
           </CardContent>
         </Card>
@@ -100,7 +95,9 @@ export default async function DashboardPage() {
             </div>
           </CardHeader>
           <CardContent className="px-4 pb-4 pt-0">
-            <p className="text-2xl font-bold text-blue-900">{inProgressJobs ?? 0}</p>
+            <p className="text-2xl font-bold text-blue-900">
+              {jobsLoading ? "—" : counts.inProgress}
+            </p>
             <p className="mt-0.5 text-xs text-blue-600">Currently active</p>
           </CardContent>
         </Card>
@@ -116,7 +113,9 @@ export default async function DashboardPage() {
             </div>
           </CardHeader>
           <CardContent className="px-4 pb-4 pt-0">
-            <p className="text-2xl font-bold text-emerald-900">{completedJobs ?? 0}</p>
+            <p className="text-2xl font-bold text-emerald-900">
+              {jobsLoading ? "—" : counts.completed}
+            </p>
             <p className="mt-0.5 text-xs text-emerald-600">All time</p>
           </CardContent>
         </Card>
@@ -132,7 +131,7 @@ export default async function DashboardPage() {
             </div>
           </CardHeader>
           <CardContent className="px-4 pb-4 pt-0">
-            <p className="text-2xl font-bold text-primary">{totalEmployees ?? 0}</p>
+            <p className="text-2xl font-bold text-primary">{totalEmployees}</p>
             <p className="mt-0.5 text-xs text-primary/60">Team members</p>
           </CardContent>
         </Card>
@@ -148,7 +147,9 @@ export default async function DashboardPage() {
             </div>
           </CardHeader>
           <CardContent className="px-4 pb-4 pt-0">
-            <p className="text-2xl font-bold">{todayJobs ?? 0}</p>
+            <p className="text-2xl font-bold">
+              {jobsLoading ? "—" : counts.today}
+            </p>
             <p className="mt-0.5 text-xs text-muted-foreground">Scheduled today</p>
           </CardContent>
         </Card>
@@ -173,9 +174,13 @@ export default async function DashboardPage() {
             </Link>
           </CardHeader>
           <CardContent className="p-0">
-            {recentJobs && recentJobs.length > 0 ? (
+            {jobsLoading ? (
+              <div className="flex items-center justify-center h-24 text-sm text-muted-foreground">
+                Loading…
+              </div>
+            ) : recentJobs.length > 0 ? (
               <ul className="divide-y">
-                {(recentJobs as Job[]).map((job) => (
+                {recentJobs.map((job) => (
                   <li key={job.id} className="flex items-center justify-between px-5 py-3 hover:bg-muted/40 transition-colors">
                     <div className="min-w-0 flex-1 space-y-0.5">
                       <p className="truncate text-sm font-medium">{job.customer_name}</p>
