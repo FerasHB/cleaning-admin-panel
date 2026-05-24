@@ -2,7 +2,6 @@
 
 import { useEffect, useState } from "react";
 import { createClient } from "@/lib/supabase/client";
-import { PageHeader } from "@/components/ui/page-header";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import {
@@ -21,8 +20,7 @@ import {
   CardHeader,
   CardTitle,
 } from "@/components/ui/card";
-import { EmptyState } from "@/components/ui/empty-state";
-import { Users, Plus, X, ShieldCheck } from "lucide-react";
+import { Users, Plus, X, Activity } from "lucide-react";
 import { Database } from "@/lib/supabase/database.types";
 
 type Profile = Database["public"]["Tables"]["profiles"]["Row"];
@@ -165,19 +163,94 @@ export default function EmployeesPage() {
     }, 2000);
   };
 
+  // ── Summary metrics — derived from already-loaded data, no new queries ──
+  const activeNow = employees.filter(
+    (e) => (statsMap.get(e.id)?.in_progress ?? 0) > 0,
+  ).length;
+  const openAssignments = Array.from(statsMap.values()).reduce(
+    (sum, s) => sum + s.open,
+    0,
+  );
+
   return (
     <div className="space-y-6">
-      <PageHeader
-        title="Employees"
-        description="Manage your team and track job assignments."
-      >
+
+      {/* ── Page header ── */}
+      <div className="flex flex-col items-start justify-between gap-3 sm:flex-row sm:items-center">
+        <div>
+          <h1 className="text-3xl font-bold tracking-tight">Employees</h1>
+          <p className="mt-1 text-sm text-muted-foreground">
+            Manage your team and track job assignments.
+          </p>
+        </div>
         <Button onClick={openForm}>
           <Plus className="mr-2 h-4 w-4" />
           Add Employee
         </Button>
-      </PageHeader>
+      </div>
 
-      {/* Add Employee Form */}
+      {/* ── Team summary cards ── */}
+      <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
+        {/* Total Employees */}
+        <Card>
+          <CardHeader className="flex flex-row items-center justify-between p-4 pb-2">
+            <CardTitle className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+              Total Employees
+            </CardTitle>
+            <div className="flex h-7 w-7 items-center justify-center rounded-md bg-secondary">
+              <Users className="h-3.5 w-3.5 text-muted-foreground" />
+            </div>
+          </CardHeader>
+          <CardContent className="px-4 pb-4 pt-0">
+            <p className="text-3xl font-bold">
+              {loading ? "—" : employees.length}
+            </p>
+            <p className="mt-0.5 text-xs text-muted-foreground">Team members</p>
+          </CardContent>
+        </Card>
+
+        {/* Active Now */}
+        <Card>
+          <CardHeader className="flex flex-row items-center justify-between p-4 pb-2">
+            <CardTitle className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+              Active Now
+            </CardTitle>
+            <div className="flex h-7 w-7 items-center justify-center rounded-md bg-blue-50">
+              <Activity className="h-3.5 w-3.5 text-blue-600" />
+            </div>
+          </CardHeader>
+          <CardContent className="px-4 pb-4 pt-0">
+            <p className="text-3xl font-bold text-blue-600">
+              {loading ? "—" : activeNow}
+            </p>
+            <p className="mt-0.5 text-xs text-muted-foreground">
+              In-progress jobs
+            </p>
+          </CardContent>
+        </Card>
+
+        {/* Open Assignments */}
+        <Card>
+          <CardHeader className="flex flex-row items-center justify-between p-4 pb-2">
+            <CardTitle className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+              Open Assignments
+            </CardTitle>
+            <div className="flex h-7 w-7 items-center justify-center rounded-md bg-amber-50">
+              <Users className="h-3.5 w-3.5 text-amber-600" />
+            </div>
+          </CardHeader>
+          <CardContent className="px-4 pb-4 pt-0">
+            <p className="text-3xl font-bold text-amber-600">
+              {loading ? "—" : openAssignments}
+            </p>
+            <p className="mt-0.5 text-xs text-muted-foreground">
+              Open jobs assigned
+            </p>
+          </CardContent>
+        </Card>
+      </div>
+
+      {/* ── Add Employee Form ── */}
       {showForm && (
         <Card>
           <CardHeader className="flex flex-row items-center justify-between border-b pb-4">
@@ -193,14 +266,14 @@ export default function EmployeesPage() {
           </CardHeader>
 
           <form onSubmit={handleCreateEmployee}>
-            <CardContent className="space-y-4">
+            <CardContent className="space-y-4 pt-4">
               {formError && (
-                <div className="rounded-md bg-destructive/10 p-3 text-sm text-destructive font-medium">
+                <div className="rounded-md bg-destructive/10 p-3 text-sm font-medium text-destructive">
                   {formError}
                 </div>
               )}
               {formSuccess && (
-                <div className="rounded-md bg-green-50 border border-green-200 p-3 text-sm text-green-800 font-medium">
+                <div className="rounded-md border border-emerald-200 bg-emerald-50 p-3 text-sm font-medium text-emerald-800">
                   {formSuccess}
                 </div>
               )}
@@ -213,7 +286,7 @@ export default function EmployeesPage() {
                   <Input
                     id="emp-name"
                     type="text"
-                    placeholder="Max Mustermann"
+                    placeholder="Jane Smith"
                     required
                     value={fullName}
                     onChange={(e) => setFullName(e.target.value)}
@@ -262,7 +335,7 @@ export default function EmployeesPage() {
                   </div>
                   <p className="text-xs text-muted-foreground">
                     Share this password with the employee. They can change it
-                    after first login.
+                    after their first login.
                   </p>
                 </div>
               </div>
@@ -285,39 +358,55 @@ export default function EmployeesPage() {
         </Card>
       )}
 
-      {/* Employee Table */}
+      {/* ── Employee Table ── */}
       <Card className="overflow-hidden">
-        <div className="flex items-center justify-between border-b px-5 py-3">
+        <div className="flex items-center justify-between border-b px-5 py-3.5">
           <p className="text-sm font-semibold">Team Members</p>
-          <p className="text-xs text-muted-foreground">
-            {employees.length} {employees.length === 1 ? "employee" : "employees"}
-          </p>
+          {!loading && (
+            <p className="text-xs text-muted-foreground">
+              {employees.length}{" "}
+              {employees.length === 1 ? "employee" : "employees"}
+            </p>
+          )}
         </div>
         <Table>
           <TableHeader>
             <TableRow className="bg-muted/40 hover:bg-muted/40">
-              <TableHead className="pl-5">Name</TableHead>
-              <TableHead>Role</TableHead>
-              <TableHead className="text-center">Total Jobs</TableHead>
-              <TableHead className="text-center">Open</TableHead>
-              <TableHead className="text-center pr-5">In Progress</TableHead>
+              <TableHead className="pl-5 font-semibold text-foreground">Name</TableHead>
+              <TableHead className="hidden font-semibold text-foreground sm:table-cell">Role</TableHead>
+              <TableHead className="text-center font-semibold text-foreground">Open</TableHead>
+              <TableHead className="text-center font-semibold text-foreground">In Progress</TableHead>
+              <TableHead className="text-center font-semibold text-foreground">Completed</TableHead>
+              <TableHead className="pr-5 text-center font-semibold text-foreground">Total</TableHead>
             </TableRow>
           </TableHeader>
           <TableBody>
             {loading ? (
               <TableRow>
-                <TableCell colSpan={5} className="h-24 text-center text-muted-foreground text-sm">
+                <TableCell
+                  colSpan={6}
+                  className="h-32 text-center text-sm text-muted-foreground"
+                >
                   Loading employees…
                 </TableCell>
               </TableRow>
             ) : employees.length === 0 ? (
               <TableRow>
-                <TableCell colSpan={5} className="h-auto p-0 border-b-0">
-                  <EmptyState
-                    icon={Users}
-                    title="No employees yet"
-                    description='Click "Add Employee" to add your first team member.'
-                  />
+                <TableCell colSpan={6} className="border-b-0 p-0">
+                  <div className="flex flex-col items-center justify-center gap-3 py-16 text-center">
+                    <div className="flex h-10 w-10 items-center justify-center rounded-full bg-muted">
+                      <Users className="h-5 w-5 text-muted-foreground" />
+                    </div>
+                    <div>
+                      <p className="text-sm font-medium">No employees yet</p>
+                      <p className="mt-0.5 text-xs text-muted-foreground">
+                        Add your first team member to get started.
+                      </p>
+                    </div>
+                    <Button size="sm" onClick={openForm}>
+                      Add Employee
+                    </Button>
+                  </div>
                 </TableCell>
               </TableRow>
             ) : (
@@ -328,6 +417,7 @@ export default function EmployeesPage() {
                   in_progress: 0,
                   completed: 0,
                 };
+                const isActive = stats.in_progress > 0;
                 const initials = (emp.full_name ?? "?")
                   .split(" ")
                   .map((n) => n[0])
@@ -335,37 +425,73 @@ export default function EmployeesPage() {
                   .join("")
                   .toUpperCase();
                 return (
-                  <TableRow key={emp.id} className="hover:bg-muted/30">
-                    <TableCell className="pl-5">
+                  <TableRow
+                    key={emp.id}
+                    className="transition-colors hover:bg-muted/40"
+                  >
+                    {/* Name + Active Now indicator */}
+                    <TableCell className="py-3.5 pl-5">
                       <div className="flex items-center gap-3">
-                        <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-primary/10 text-xs font-semibold text-primary">
-                          {initials}
+                        <div className="relative shrink-0">
+                          <div className="flex h-8 w-8 items-center justify-center rounded-full bg-primary/10 text-xs font-semibold text-primary">
+                            {initials}
+                          </div>
+                          {isActive && (
+                            <span className="absolute -bottom-0.5 -right-0.5 flex h-2.5 w-2.5 items-center justify-center rounded-full border-2 border-card bg-blue-500" />
+                          )}
                         </div>
-                        <span className="font-medium">{emp.full_name}</span>
+                        <div>
+                          <p className="text-sm font-medium leading-tight">
+                            {emp.full_name}
+                          </p>
+                          {isActive && (
+                            <p className="text-[11px] font-medium text-blue-600">
+                              Active now
+                            </p>
+                          )}
+                        </div>
                       </div>
                     </TableCell>
-                    <TableCell>
-                      <div className="flex items-center gap-1.5 text-xs text-muted-foreground">
-                        <ShieldCheck className="h-3.5 w-3.5" />
-                        <span className="capitalize">{emp.role}</span>
-                      </div>
+
+                    {/* Email — not in profiles schema; show role instead */}
+                    <TableCell className="hidden py-3.5 text-sm text-muted-foreground sm:table-cell capitalize">
+                      {emp.role}
                     </TableCell>
-                    <TableCell className="text-center">
-                      <span className="font-medium">{stats.total}</span>
-                    </TableCell>
-                    <TableCell className="text-center">
+
+                    {/* Open */}
+                    <TableCell className="py-3.5 text-center">
                       {stats.open > 0 ? (
                         <Badge variant="warning">{stats.open}</Badge>
                       ) : (
-                        <span className="text-xs text-muted-foreground">—</span>
+                        <span className="text-xs text-muted-foreground/50">—</span>
                       )}
                     </TableCell>
-                    <TableCell className="text-center pr-5">
+
+                    {/* In Progress */}
+                    <TableCell className="py-3.5 text-center">
                       {stats.in_progress > 0 ? (
                         <Badge variant="info">{stats.in_progress}</Badge>
                       ) : (
-                        <span className="text-xs text-muted-foreground">—</span>
+                        <span className="text-xs text-muted-foreground/50">—</span>
                       )}
+                    </TableCell>
+
+                    {/* Completed */}
+                    <TableCell className="py-3.5 text-center">
+                      {stats.completed > 0 ? (
+                        <Badge variant="success">{stats.completed}</Badge>
+                      ) : (
+                        <span className="text-xs text-muted-foreground/50">—</span>
+                      )}
+                    </TableCell>
+
+                    {/* Total */}
+                    <TableCell className="py-3.5 pr-5 text-center">
+                      <span className="text-sm font-semibold">
+                        {stats.total > 0 ? stats.total : (
+                          <span className="font-normal text-muted-foreground/50">—</span>
+                        )}
+                      </span>
                     </TableCell>
                   </TableRow>
                 );
@@ -374,6 +500,7 @@ export default function EmployeesPage() {
           </TableBody>
         </Table>
       </Card>
+
     </div>
   );
 }
