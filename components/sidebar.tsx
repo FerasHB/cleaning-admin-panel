@@ -27,6 +27,8 @@ const sidebarItems = [
   },
 ]
 
+const FALLBACK = "Cleaning Admin"
+
 export function Sidebar({ className }: React.HTMLAttributes<HTMLDivElement>) {
   const pathname = usePathname()
   const router = useRouter()
@@ -70,17 +72,32 @@ export function Sidebar({ className }: React.HTMLAttributes<HTMLDivElement>) {
     router.refresh()
   }
 
+  const displayName = companyName ?? FALLBACK
+  const initial = displayName.trim()[0]?.toUpperCase() ?? "C"
+
   return (
     <div className={cn("fixed hidden h-screen w-64 flex-col border-r bg-card md:flex", className)}>
-      <div className="flex h-14 items-center border-b px-4 lg:h-[60px] lg:px-6">
-        <Link href="/" className="flex items-center gap-2 font-semibold">
-          <span className="text-primary tracking-tight">
-            {companyName ?? "Cleaning Admin"}
-          </span>
-        </Link>
+
+      {/* ── Workspace header ── */}
+      <div className="flex h-[60px] items-center gap-3 border-b px-4">
+        {/* Company initial avatar */}
+        <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-primary text-sm font-bold text-primary-foreground">
+          {initial}
+        </div>
+        {/* Company name + label */}
+        <div className="min-w-0 flex-1">
+          <p className="truncate text-sm font-semibold leading-tight text-foreground">
+            {displayName}
+          </p>
+          <p className="text-[11px] font-medium leading-tight text-muted-foreground">
+            Admin workspace
+          </p>
+        </div>
       </div>
-      <div className="flex-1 overflow-auto py-2">
-        <nav className="grid items-start px-2 text-sm font-medium lg:px-4">
+
+      {/* ── Navigation ── */}
+      <div className="flex-1 overflow-auto py-3">
+        <nav className="grid gap-0.5 px-3">
           {sidebarItems.map((item, index) => {
             const Icon = item.icon
             const isActive = pathname.startsWith(item.href)
@@ -89,30 +106,33 @@ export function Sidebar({ className }: React.HTMLAttributes<HTMLDivElement>) {
                 key={index}
                 href={item.href}
                 className={cn(
-                  "flex items-center gap-3 rounded-lg px-3 py-2 transition-all",
+                  "flex items-center gap-3 rounded-lg px-3 py-2 text-sm transition-colors",
                   isActive
-                    ? "bg-primary/10 text-primary font-semibold"
-                    : "text-muted-foreground hover:bg-muted hover:text-foreground"
+                    ? "bg-primary/10 font-semibold text-primary"
+                    : "font-medium text-muted-foreground hover:bg-muted hover:text-foreground"
                 )}
               >
-                <Icon className="h-4 w-4" />
+                <Icon className={cn("h-4 w-4 shrink-0", isActive ? "text-primary" : "text-muted-foreground")} />
                 {item.title}
               </Link>
             )
           })}
         </nav>
       </div>
-      <div className="border-t p-3">
+
+      {/* ── Sign out ── */}
+      <div className="border-t px-3 py-3">
         <button
           onClick={handleLogout}
-          className="flex w-full items-center gap-3 rounded-lg px-3 py-2.5 text-sm font-medium text-muted-foreground transition-colors hover:bg-destructive/8 hover:text-destructive"
+          className="flex w-full items-center gap-3 rounded-lg px-3 py-2 text-sm font-medium text-muted-foreground transition-colors hover:bg-destructive/8 hover:text-destructive"
         >
-          <div className="flex h-7 w-7 items-center justify-center rounded-md bg-muted">
+          <div className="flex h-7 w-7 shrink-0 items-center justify-center rounded-md bg-muted">
             <LogOut className="h-3.5 w-3.5" />
           </div>
           <span>Sign out</span>
         </button>
       </div>
+
     </div>
   )
 }
