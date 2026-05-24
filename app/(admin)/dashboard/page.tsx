@@ -20,9 +20,9 @@ import { Database } from "@/lib/supabase/database.types"
 type Job = Database["public"]["Tables"]["jobs"]["Row"]
 
 const STATUS_LABEL: Record<string, string> = {
-  open:        "Open",
-  in_progress: "In Progress",
-  completed:   "Completed",
+  open:        "Offen",
+  in_progress: "In Arbeit",
+  completed:   "Erledigt",
 }
 
 const STATUS_VARIANT: Record<string, "warning" | "info" | "success"> = {
@@ -90,20 +90,20 @@ export default function DashboardPage() {
       <div className="flex flex-col items-start justify-between gap-3 sm:flex-row sm:items-center">
         <div>
           <div className="flex items-center gap-2.5">
-            <h1 className="text-3xl font-bold tracking-tight">Dashboard</h1>
+            <h1 className="text-3xl font-bold tracking-tight">Übersicht</h1>
             <span className="flex items-center gap-1.5 rounded-full border border-emerald-200 bg-emerald-50 px-2.5 py-0.5 text-xs font-semibold text-emerald-700">
               <span className="h-1.5 w-1.5 rounded-full bg-emerald-500" />
               Live
             </span>
           </div>
           <p className="mt-1 text-sm text-muted-foreground">
-            Your jobs and team, updated in real time.
+            Aufträge und Team – immer aktuell.
           </p>
         </div>
         <Link href="/jobs/new">
           <Button>
             <Briefcase className="mr-2 h-4 w-4" />
-            Create Job
+            Auftrag erstellen
           </Button>
         </Link>
       </div>
@@ -115,7 +115,7 @@ export default function DashboardPage() {
         <Card className="sm:col-span-2">
           <CardHeader className="px-5 pb-2 pt-4">
             <CardTitle className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
-              Jobs Overview
+              Auftragsübersicht
             </CardTitle>
           </CardHeader>
           <CardContent className="px-5 pb-5">
@@ -130,7 +130,7 @@ export default function DashboardPage() {
                       {counts.open}
                     </p>
                     <p className="mt-0.5 text-xs font-medium text-muted-foreground">
-                      Open
+                      Offen
                     </p>
                   </div>
                   <div>
@@ -138,7 +138,7 @@ export default function DashboardPage() {
                       {counts.inProgress}
                     </p>
                     <p className="mt-0.5 text-xs font-medium text-muted-foreground">
-                      In Progress
+                      In Arbeit
                     </p>
                   </div>
                   <div>
@@ -146,7 +146,7 @@ export default function DashboardPage() {
                       {counts.completed}
                     </p>
                     <p className="mt-0.5 text-xs font-medium text-muted-foreground">
-                      Completed
+                      Erledigt
                     </p>
                   </div>
                 </div>
@@ -173,7 +173,7 @@ export default function DashboardPage() {
                   )}
                 </div>
                 <p className="mt-2 text-xs text-muted-foreground">
-                  {total > 0 ? `${total} total jobs` : "No jobs yet"}
+                  {total > 0 ? `${total} Aufträge gesamt` : "Noch keine Aufträge"}
                 </p>
               </>
             )}
@@ -184,7 +184,7 @@ export default function DashboardPage() {
         <Card>
           <CardHeader className="flex flex-row items-center justify-between p-4 pb-2">
             <CardTitle className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
-              Today's Jobs
+              Heutige Aufträge
             </CardTitle>
             <div className="flex h-7 w-7 items-center justify-center rounded-md bg-secondary">
               <CalendarDays className="h-3.5 w-3.5 text-muted-foreground" />
@@ -195,7 +195,7 @@ export default function DashboardPage() {
               {jobsLoading ? "—" : counts.today}
             </p>
             <p className="mt-0.5 text-xs text-muted-foreground">
-              Scheduled today
+              Heute geplant
             </p>
           </CardContent>
         </Card>
@@ -213,7 +213,7 @@ export default function DashboardPage() {
           <CardContent className="px-4 pb-5 pt-0">
             <p className="text-3xl font-bold text-primary">{totalEmployees}</p>
             <p className="mt-0.5 text-xs text-muted-foreground">
-              Active employees
+              Aktive Mitarbeiter
             </p>
           </CardContent>
         </Card>
@@ -224,13 +224,13 @@ export default function DashboardPage() {
       <Card>
         <CardHeader className="flex flex-row items-center justify-between border-b px-5 py-4">
           <div>
-            <CardTitle className="text-sm font-semibold">Today's Schedule</CardTitle>
+            <CardTitle className="text-sm font-semibold">Tagesplan</CardTitle>
             <p className="mt-0.5 text-xs text-muted-foreground">
               {jobsLoading
-                ? "Loading…"
+                ? "Laden…"
                 : todaysJobs.length > 0
-                ? `${todaysJobs.length} job${todaysJobs.length === 1 ? "" : "s"} scheduled today`
-                : "No jobs scheduled for today"}
+                ? `${todaysJobs.length} Auftrag${todaysJobs.length === 1 ? "" : "träge"} heute geplant`
+                : "Heute keine Aufträge geplant"}
             </p>
           </div>
           <div className="flex h-7 w-7 items-center justify-center rounded-md bg-secondary">
@@ -240,7 +240,7 @@ export default function DashboardPage() {
         <CardContent className="p-0">
           {jobsLoading ? (
             <div className="flex h-24 items-center justify-center text-sm text-muted-foreground">
-              Loading…
+              Laden…
             </div>
           ) : todaysJobs.length > 0 ? (
             <ul className="divide-y">
@@ -292,7 +292,7 @@ export default function DashboardPage() {
               <div className="flex h-9 w-9 items-center justify-center rounded-full bg-muted">
                 <CalendarDays className="h-4.5 w-4.5 text-muted-foreground" />
               </div>
-              <p className="text-sm text-muted-foreground">No jobs scheduled for today.</p>
+              <p className="text-sm text-muted-foreground">Heute keine Aufträge geplant.</p>
             </div>
           )}
         </CardContent>
@@ -302,9 +302,9 @@ export default function DashboardPage() {
       <Card>
         <CardHeader className="flex flex-row items-center justify-between border-b px-5 py-4">
           <div>
-            <CardTitle className="text-sm font-semibold">Recent Jobs</CardTitle>
+            <CardTitle className="text-sm font-semibold">Aktuelle Aufträge</CardTitle>
             <p className="mt-0.5 text-xs text-muted-foreground">
-              5 most recent jobs
+              Die 5 neuesten Aufträge
             </p>
           </div>
           <Link href="/jobs">
@@ -313,7 +313,7 @@ export default function DashboardPage() {
               size="sm"
               className="text-xs text-muted-foreground"
             >
-              View all
+              Alle anzeigen
               <ArrowRight className="ml-1 h-3 w-3" />
             </Button>
           </Link>
@@ -321,7 +321,7 @@ export default function DashboardPage() {
         <CardContent className="p-0">
           {jobsLoading ? (
             <div className="flex h-24 items-center justify-center text-sm text-muted-foreground">
-              Loading…
+              Laden…
             </div>
           ) : recentJobs.length > 0 ? (
             <ul className="divide-y">
@@ -369,13 +369,13 @@ export default function DashboardPage() {
                 <Briefcase className="h-5 w-5 text-muted-foreground" />
               </div>
               <div>
-                <p className="text-sm font-medium">No jobs yet</p>
+                <p className="text-sm font-medium">Noch keine Aufträge</p>
                 <p className="mt-0.5 text-xs text-muted-foreground">
-                  Create your first job to get started.
+                  Erstellen Sie Ihren ersten Auftrag, um zu beginnen.
                 </p>
               </div>
               <Link href="/jobs/new">
-                <Button size="sm">Create First Job</Button>
+                <Button size="sm">Ersten Auftrag erstellen</Button>
               </Link>
             </div>
           )}

@@ -14,9 +14,9 @@ import { Database } from "@/lib/supabase/database.types"
 type Job = Database["public"]["Tables"]["jobs"]["Row"]
 
 const STATUS_LABEL: Record<string, string> = {
-  open:        "Open",
-  in_progress: "In Progress",
-  completed:   "Completed",
+  open:        "Offen",
+  in_progress: "In Arbeit",
+  completed:   "Erledigt",
 }
 
 const STATUS_VARIANT: Record<string, "warning" | "info" | "success"> = {
@@ -55,15 +55,15 @@ export default function JobsPage() {
       {/* ── Page header ── */}
       <div className="flex flex-col items-start justify-between gap-3 sm:flex-row sm:items-center">
         <div>
-          <h1 className="text-3xl font-bold tracking-tight">Jobs</h1>
+          <h1 className="text-3xl font-bold tracking-tight">Aufträge</h1>
           <p className="mt-1 text-sm text-muted-foreground">
-            Manage and track all cleaning jobs.
+            Alle Reinigungsaufträge verwalten und verfolgen.
           </p>
         </div>
         <Link href="/jobs/new">
           <Button>
             <Plus className="mr-2 h-4 w-4" />
-            Create Job
+            Auftrag erstellen
           </Button>
         </Link>
       </div>
@@ -76,7 +76,7 @@ export default function JobsPage() {
             <Search className="absolute left-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-muted-foreground" />
             <Input
               type="search"
-              placeholder="Search customer or service…"
+              placeholder="Kunde oder Leistung suchen…"
               className="h-8 w-full pl-8 text-sm sm:w-64"
               value={search}
               onChange={(e) => setSearch(e.target.value)}
@@ -91,10 +91,10 @@ export default function JobsPage() {
               setStatusFilter(e.target.value as "all" | "open" | "in_progress" | "completed")
             }
           >
-            <option value="all">All Statuses</option>
-            <option value="open">Open</option>
-            <option value="in_progress">In Progress</option>
-            <option value="completed">Completed</option>
+            <option value="all">Alle Status</option>
+            <option value="open">Offen</option>
+            <option value="in_progress">In Arbeit</option>
+            <option value="completed">Erledigt</option>
           </Select>
         </div>
 
@@ -102,8 +102,8 @@ export default function JobsPage() {
         {!loading && jobs.length > 0 && (
           <p className="text-xs text-muted-foreground">
             {hasActiveFilters
-              ? `Showing ${filteredJobs.length} of ${jobs.length} job${jobs.length === 1 ? "" : "s"}`
-              : `${jobs.length} job${jobs.length === 1 ? "" : "s"} total`}
+              ? `${filteredJobs.length} von ${jobs.length} Auftrag${jobs.length === 1 ? "" : "trägen"}`
+              : `${jobs.length} Auftrag${jobs.length === 1 ? "" : "träge"} gesamt`}
           </p>
         )}
       </div>
@@ -113,10 +113,10 @@ export default function JobsPage() {
         <Table>
           <TableHeader>
             <TableRow className="bg-muted/40 hover:bg-muted/40">
-              <TableHead className="w-[200px] font-semibold text-foreground">Customer</TableHead>
-              <TableHead className="font-semibold text-foreground">Service</TableHead>
-              <TableHead className="hidden font-semibold text-foreground md:table-cell">Location</TableHead>
-              <TableHead className="hidden font-semibold text-foreground sm:table-cell">Date</TableHead>
+              <TableHead className="w-[200px] font-semibold text-foreground">Kunde</TableHead>
+              <TableHead className="font-semibold text-foreground">Leistung</TableHead>
+              <TableHead className="hidden font-semibold text-foreground md:table-cell">Adresse</TableHead>
+              <TableHead className="hidden font-semibold text-foreground sm:table-cell">Datum</TableHead>
               <TableHead className="font-semibold text-foreground">Status</TableHead>
               <TableHead className="w-[60px]" />
             </TableRow>
@@ -125,7 +125,7 @@ export default function JobsPage() {
             {loading ? (
               <TableRow>
                 <TableCell colSpan={6} className="h-32 text-center text-sm text-muted-foreground">
-                  Loading jobs…
+                  Aufträge werden geladen…
                 </TableCell>
               </TableRow>
             ) : filteredJobs.length === 0 ? (
@@ -137,17 +137,17 @@ export default function JobsPage() {
                     </div>
                     <div>
                       <p className="text-sm font-medium">
-                        {hasActiveFilters ? "No jobs match your filters" : "No jobs yet"}
+                        {hasActiveFilters ? "Keine Aufträge entsprechen den Filtern" : "Noch keine Aufträge"}
                       </p>
                       <p className="mt-0.5 text-xs text-muted-foreground">
                         {hasActiveFilters
-                          ? "Try adjusting your search or status filter."
-                          : "Create your first job to get started."}
+                          ? "Suche oder Statusfilter anpassen."
+                          : "Erstellen Sie Ihren ersten Auftrag, um zu beginnen."}
                       </p>
                     </div>
                     {!hasActiveFilters && (
                       <Link href="/jobs/new">
-                        <Button size="sm">Create First Job</Button>
+                        <Button size="sm">Ersten Auftrag erstellen</Button>
                       </Link>
                     )}
                   </div>

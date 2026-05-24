@@ -69,20 +69,20 @@ function LoginContent() {
           <div className="mb-4 flex h-12 w-12 items-center justify-center rounded-full bg-primary/10">
             <Briefcase className="h-6 w-6 text-primary" />
           </div>
-          <h1 className="text-2xl font-bold">Admin Portal</h1>
-          <p className="text-muted-foreground mt-2">Cleaning Employee Management System</p>
+          <h1 className="text-2xl font-bold">Admin-Portal</h1>
+          <p className="text-muted-foreground mt-2">Mitarbeiterverwaltung für Reinigungsunternehmen</p>
         </div>
 
         <Card>
           <CardHeader>
-            <CardTitle>Sign in</CardTitle>
-            <CardDescription>Enter your email and password to access the dashboard.</CardDescription>
+            <CardTitle>Anmelden</CardTitle>
+            <CardDescription>E-Mail und Passwort eingeben, um zur Übersicht zu gelangen.</CardDescription>
           </CardHeader>
           <form onSubmit={handleLogin}>
             <CardContent className="space-y-4">
               {errorParam === 'access_denied' && (
                 <div className="rounded-md bg-destructive/10 p-3 text-sm text-destructive font-medium">
-                  Access denied. Please log in with an admin account.
+                  Zugriff verweigert. Bitte mit einem Admin-Konto anmelden.
                 </div>
               )}
               {error && (
@@ -92,7 +92,7 @@ function LoginContent() {
               )}
               <div className="space-y-2">
                 <label className="text-sm font-medium leading-none peer-disabled:cursor-not-allowed peer-disabled:opacity-70" htmlFor="email">
-                  Email
+                  E-Mail
                 </label>
                 <Input
                   id="email"
@@ -106,7 +106,7 @@ function LoginContent() {
               <div className="space-y-2">
                 <div className="flex items-center justify-between">
                   <label className="text-sm font-medium leading-none peer-disabled:cursor-not-allowed peer-disabled:opacity-70" htmlFor="password">
-                    Password
+                    Passwort
                   </label>
                 </div>
                 <Input
@@ -120,10 +120,10 @@ function LoginContent() {
             </CardContent>
             <CardFooter className="flex flex-col gap-3">
               <Button type="submit" className="w-full" disabled={loading}>
-                {loading ? "Signing in..." : "Sign in"}
+                {loading ? "Wird angemeldet…" : "Anmelden"}
               </Button>
               <p className="text-sm text-muted-foreground text-center">
-                New business?{" "}
+                Neu hier?{" "}
                 <Link href="/register" className="underline hover:text-foreground font-medium">
                   Firma erstellen
                 </Link>

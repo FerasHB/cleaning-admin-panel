@@ -125,7 +125,7 @@ export default function EmployeesPage() {
       data: { session },
     } = await supabase.auth.getSession();
     if (!session) {
-      setFormError("Your session has expired. Please sign in again.");
+      setFormError("Ihre Sitzung ist abgelaufen. Bitte melden Sie sich erneut an.");
       setFormBusy(false);
       return;
     }
@@ -147,12 +147,12 @@ export default function EmployeesPage() {
     const result = await res.json();
 
     if (!res.ok) {
-      setFormError(result.error ?? "Employee creation failed.");
+      setFormError(result.error ?? "Mitarbeiter konnte nicht erstellt werden.");
       setFormBusy(false);
       return;
     }
 
-    setFormSuccess(`${result.full_name} was added successfully.`);
+    setFormSuccess(`${result.full_name} wurde erfolgreich hinzugefügt.`);
     setFormBusy(false);
     await fetchData();
 
@@ -178,14 +178,14 @@ export default function EmployeesPage() {
       {/* ── Page header ── */}
       <div className="flex flex-col items-start justify-between gap-3 sm:flex-row sm:items-center">
         <div>
-          <h1 className="text-3xl font-bold tracking-tight">Employees</h1>
+          <h1 className="text-3xl font-bold tracking-tight">Mitarbeiter</h1>
           <p className="mt-1 text-sm text-muted-foreground">
-            Manage your team and track job assignments.
+            Team verwalten und Auftragszuweisungen verfolgen.
           </p>
         </div>
         <Button onClick={openForm}>
           <Plus className="mr-2 h-4 w-4" />
-          Add Employee
+          Mitarbeiter hinzufügen
         </Button>
       </div>
 
@@ -195,7 +195,7 @@ export default function EmployeesPage() {
         <Card>
           <CardHeader className="flex flex-row items-center justify-between p-4 pb-2">
             <CardTitle className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
-              Total Employees
+              Mitarbeiter gesamt
             </CardTitle>
             <div className="flex h-7 w-7 items-center justify-center rounded-md bg-secondary">
               <Users className="h-3.5 w-3.5 text-muted-foreground" />
@@ -205,7 +205,7 @@ export default function EmployeesPage() {
             <p className="text-3xl font-bold">
               {loading ? "—" : employees.length}
             </p>
-            <p className="mt-0.5 text-xs text-muted-foreground">Team members</p>
+            <p className="mt-0.5 text-xs text-muted-foreground">Teammitglieder</p>
           </CardContent>
         </Card>
 
@@ -213,7 +213,7 @@ export default function EmployeesPage() {
         <Card>
           <CardHeader className="flex flex-row items-center justify-between p-4 pb-2">
             <CardTitle className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
-              Active Now
+              Gerade aktiv
             </CardTitle>
             <div className="flex h-7 w-7 items-center justify-center rounded-md bg-blue-50">
               <Activity className="h-3.5 w-3.5 text-blue-600" />
@@ -224,7 +224,7 @@ export default function EmployeesPage() {
               {loading ? "—" : activeNow}
             </p>
             <p className="mt-0.5 text-xs text-muted-foreground">
-              In-progress jobs
+              Aufträge in Arbeit
             </p>
           </CardContent>
         </Card>
@@ -233,7 +233,7 @@ export default function EmployeesPage() {
         <Card>
           <CardHeader className="flex flex-row items-center justify-between p-4 pb-2">
             <CardTitle className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
-              Open Assignments
+              Offene Zuweisungen
             </CardTitle>
             <div className="flex h-7 w-7 items-center justify-center rounded-md bg-amber-50">
               <Users className="h-3.5 w-3.5 text-amber-600" />
@@ -244,7 +244,7 @@ export default function EmployeesPage() {
               {loading ? "—" : openAssignments}
             </p>
             <p className="mt-0.5 text-xs text-muted-foreground">
-              Open jobs assigned
+              Offene zugewiesene Aufträge
             </p>
           </CardContent>
         </Card>
@@ -254,7 +254,7 @@ export default function EmployeesPage() {
       {showForm && (
         <Card>
           <CardHeader className="flex flex-row items-center justify-between border-b pb-4">
-            <CardTitle className="text-sm font-semibold">Add New Employee</CardTitle>
+            <CardTitle className="text-sm font-semibold">Neuen Mitarbeiter hinzufügen</CardTitle>
             <Button
               variant="ghost"
               size="icon"
@@ -281,7 +281,7 @@ export default function EmployeesPage() {
               <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
                 <div className="space-y-2">
                   <label className="text-sm font-medium" htmlFor="emp-name">
-                    Full Name
+                    Vollständiger Name
                   </label>
                   <Input
                     id="emp-name"
@@ -296,7 +296,7 @@ export default function EmployeesPage() {
 
                 <div className="space-y-2">
                   <label className="text-sm font-medium" htmlFor="emp-email">
-                    Email
+                    E-Mail
                   </label>
                   <Input
                     id="emp-email"
@@ -311,7 +311,7 @@ export default function EmployeesPage() {
 
                 <div className="space-y-2 sm:col-span-2">
                   <label className="text-sm font-medium" htmlFor="emp-password">
-                    Temporary Password
+                    Temporäres Passwort
                   </label>
                   <div className="flex gap-2">
                     <Input
@@ -330,12 +330,12 @@ export default function EmployeesPage() {
                       onClick={() => setPassword(generatePassword())}
                       disabled={formBusy}
                     >
-                      Generate
+                      Generieren
                     </Button>
                   </div>
                   <p className="text-xs text-muted-foreground">
-                    Share this password with the employee. They can change it
-                    after their first login.
+                    Dieses Passwort an den Mitarbeiter weitergeben. Es kann nach der
+                    ersten Anmeldung geändert werden.
                   </p>
                 </div>
               </div>
@@ -348,10 +348,10 @@ export default function EmployeesPage() {
                 onClick={closeForm}
                 disabled={formBusy}
               >
-                Cancel
+                Abbrechen
               </Button>
               <Button type="submit" disabled={formBusy}>
-                {formBusy ? "Creating..." : "Add Employee"}
+                {formBusy ? "Wird erstellt…" : "Mitarbeiter hinzufügen"}
               </Button>
             </CardFooter>
           </form>
@@ -361,11 +361,11 @@ export default function EmployeesPage() {
       {/* ── Employee Table ── */}
       <Card className="overflow-hidden">
         <div className="flex items-center justify-between border-b px-5 py-3.5">
-          <p className="text-sm font-semibold">Team Members</p>
+          <p className="text-sm font-semibold">Teammitglieder</p>
           {!loading && (
             <p className="text-xs text-muted-foreground">
               {employees.length}{" "}
-              {employees.length === 1 ? "employee" : "employees"}
+              {employees.length === 1 ? "Mitarbeiter" : "Mitarbeiter"}
             </p>
           )}
         </div>
@@ -373,11 +373,11 @@ export default function EmployeesPage() {
           <TableHeader>
             <TableRow className="bg-muted/40 hover:bg-muted/40">
               <TableHead className="pl-5 font-semibold text-foreground">Name</TableHead>
-              <TableHead className="hidden font-semibold text-foreground sm:table-cell">Role</TableHead>
-              <TableHead className="text-center font-semibold text-foreground">Open</TableHead>
-              <TableHead className="text-center font-semibold text-foreground">In Progress</TableHead>
-              <TableHead className="text-center font-semibold text-foreground">Completed</TableHead>
-              <TableHead className="pr-5 text-center font-semibold text-foreground">Total</TableHead>
+              <TableHead className="hidden font-semibold text-foreground sm:table-cell">Rolle</TableHead>
+              <TableHead className="text-center font-semibold text-foreground">Offen</TableHead>
+              <TableHead className="text-center font-semibold text-foreground">In Arbeit</TableHead>
+              <TableHead className="text-center font-semibold text-foreground">Erledigt</TableHead>
+              <TableHead className="pr-5 text-center font-semibold text-foreground">Gesamt</TableHead>
             </TableRow>
           </TableHeader>
           <TableBody>
@@ -387,7 +387,7 @@ export default function EmployeesPage() {
                   colSpan={6}
                   className="h-32 text-center text-sm text-muted-foreground"
                 >
-                  Loading employees…
+                  Mitarbeiter werden geladen…
                 </TableCell>
               </TableRow>
             ) : employees.length === 0 ? (
@@ -398,13 +398,13 @@ export default function EmployeesPage() {
                       <Users className="h-5 w-5 text-muted-foreground" />
                     </div>
                     <div>
-                      <p className="text-sm font-medium">No employees yet</p>
+                      <p className="text-sm font-medium">Noch keine Mitarbeiter</p>
                       <p className="mt-0.5 text-xs text-muted-foreground">
-                        Add your first team member to get started.
+                        Fügen Sie Ihr erstes Teammitglied hinzu, um zu beginnen.
                       </p>
                     </div>
                     <Button size="sm" onClick={openForm}>
-                      Add Employee
+                      Mitarbeiter hinzufügen
                     </Button>
                   </div>
                 </TableCell>
@@ -446,7 +446,7 @@ export default function EmployeesPage() {
                           </p>
                           {isActive && (
                             <p className="text-[11px] font-medium text-blue-600">
-                              Active now
+                              Gerade aktiv
                             </p>
                           )}
                         </div>

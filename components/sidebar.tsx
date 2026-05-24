@@ -11,17 +11,17 @@ import { useRouter } from "next/navigation"
 
 const sidebarItems = [
   {
-    title: "Dashboard",
+    title: "Übersicht",
     href: "/dashboard",
     icon: LayoutDashboard,
   },
   {
-    title: "Jobs",
+    title: "Aufträge",
     href: "/jobs",
     icon: Briefcase,
   },
   {
-    title: "Employees",
+    title: "Mitarbeiter",
     href: "/employees",
     icon: Users,
   },
@@ -90,7 +90,7 @@ export function Sidebar({ className }: React.HTMLAttributes<HTMLDivElement>) {
             {displayName}
           </p>
           <p className="text-[11px] font-medium leading-tight text-muted-foreground">
-            Admin workspace
+            Admin-Bereich
           </p>
         </div>
       </div>
@@ -129,7 +129,7 @@ export function Sidebar({ className }: React.HTMLAttributes<HTMLDivElement>) {
           <div className="flex h-7 w-7 shrink-0 items-center justify-center rounded-md bg-muted">
             <LogOut className="h-3.5 w-3.5" />
           </div>
-          <span>Sign out</span>
+          <span>Abmelden</span>
         </button>
       </div>
 

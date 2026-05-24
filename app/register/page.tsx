@@ -134,18 +134,18 @@ function RegisterContent() {
             <div className="mb-4 flex h-12 w-12 items-center justify-center rounded-full bg-primary/10">
               <Briefcase className="h-6 w-6 text-primary" />
             </div>
-            <h1 className="text-2xl font-bold">Complete your setup</h1>
+            <h1 className="text-2xl font-bold">Einrichtung abschließen</h1>
             <p className="text-muted-foreground mt-2">
-              Your account exists but your company workspace was not created yet.
-              Enter your company name to finish setup.
+              Ihr Konto existiert bereits, aber der Firmen-Arbeitsbereich wurde noch nicht erstellt.
+              Geben Sie den Firmennamen ein, um die Einrichtung abzuschließen.
             </p>
           </div>
 
           <Card>
             <CardHeader>
-              <CardTitle>Create your company</CardTitle>
+              <CardTitle>Firma erstellen</CardTitle>
               <CardDescription>
-                This step connects your account to a company workspace.
+                Dieser Schritt verknüpft Ihr Konto mit einem Firmen-Arbeitsbereich.
               </CardDescription>
             </CardHeader>
 
@@ -160,7 +160,7 @@ function RegisterContent() {
                 {!existingName && (
                   <div className="space-y-2">
                     <label className="text-sm font-medium leading-none" htmlFor="fullNameIncomplete">
-                      Full Name
+                      Vollständiger Name
                     </label>
                     <Input
                       id="fullNameIncomplete"
@@ -176,7 +176,7 @@ function RegisterContent() {
 
                 <div className="space-y-2">
                   <label className="text-sm font-medium leading-none" htmlFor="companyNameIncomplete">
-                    Company Name
+                    Firmenname
                   </label>
                   <Input
                     id="companyNameIncomplete"
@@ -192,12 +192,12 @@ function RegisterContent() {
 
               <CardFooter className="flex flex-col gap-3">
                 <Button type="submit" className="w-full" disabled={busy}>
-                  {busy ? "Setting up..." : "Finish setup"}
+                  {busy ? "Wird eingerichtet…" : "Einrichtung abschließen"}
                 </Button>
                 <p className="text-sm text-muted-foreground text-center">
-                  Wrong account?{" "}
+                  Falsches Konto?{" "}
                   <Link href="/login" className="underline hover:text-foreground">
-                    Sign out and sign in again
+                    Abmelden und neu anmelden
                   </Link>
                 </p>
               </CardFooter>
@@ -224,9 +224,9 @@ function RegisterContent() {
 
         <Card>
           <CardHeader>
-            <CardTitle>Register</CardTitle>
+            <CardTitle>Registrieren</CardTitle>
             <CardDescription>
-              Fill in your details to create your admin account and company.
+              Geben Sie Ihre Daten ein, um Ihr Admin-Konto und Ihre Firma zu erstellen.
             </CardDescription>
           </CardHeader>
 
@@ -240,7 +240,7 @@ function RegisterContent() {
 
               <div className="space-y-2">
                 <label className="text-sm font-medium leading-none" htmlFor="fullName">
-                  Full Name
+                  Vollständiger Name
                 </label>
                 <Input
                   id="fullName"
@@ -255,7 +255,7 @@ function RegisterContent() {
 
               <div className="space-y-2">
                 <label className="text-sm font-medium leading-none" htmlFor="companyName">
-                  Company Name
+                  Firmenname
                 </label>
                 <Input
                   id="companyName"
@@ -270,7 +270,7 @@ function RegisterContent() {
 
               <div className="space-y-2">
                 <label className="text-sm font-medium leading-none" htmlFor="email">
-                  Email
+                  E-Mail
                 </label>
                 <Input
                   id="email"
@@ -285,12 +285,12 @@ function RegisterContent() {
 
               <div className="space-y-2">
                 <label className="text-sm font-medium leading-none" htmlFor="password">
-                  Password
+                  Passwort
                 </label>
                 <Input
                   id="password"
                   type="password"
-                  placeholder="At least 8 characters"
+                  placeholder="Mindestens 8 Zeichen"
                   required
                   minLength={8}
                   value={password}
@@ -302,12 +302,12 @@ function RegisterContent() {
 
             <CardFooter className="flex flex-col gap-3">
               <Button type="submit" className="w-full" disabled={busy}>
-                {busy ? "Setting up your company..." : "Create company & account"}
+                {busy ? "Firma wird eingerichtet…" : "Firma & Konto erstellen"}
               </Button>
               <p className="text-sm text-muted-foreground text-center">
-                Already have an account?{" "}
+                Bereits ein Konto?{" "}
                 <Link href="/login" className="underline hover:text-foreground">
-                  Sign in
+                  Anmelden
                 </Link>
               </p>
             </CardFooter>
