@@ -119,7 +119,7 @@ export default function NewJobPage() {
         <Button variant="ghost" size="icon" onClick={() => router.back()}>
           <ArrowLeft className="h-4 w-4" />
         </Button>
-        <PageHeader title="Create New Job" />
+        <PageHeader title="Auftrag erstellen" />
       </div>
 
       <Card>
@@ -127,40 +127,40 @@ export default function NewJobPage() {
           <CardContent className="space-y-4 pt-6">
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
               <div className="space-y-2">
-                <label className="text-sm font-medium">Customer Name</label>
+                <label className="text-sm font-medium">Kundenname</label>
                 <Input
                   name="customer_name"
                   required
                   value={formData.customer_name}
                   onChange={handleChange}
-                  placeholder="e.g. John Doe"
+                  placeholder="z. B. Max Mustermann"
                 />
               </div>
 
               <div className="space-y-2">
-                <label className="text-sm font-medium">Service</label>
+                <label className="text-sm font-medium">Leistung</label>
                 <Input
                   name="service_name"
                   required
                   value={formData.service_name}
                   onChange={handleChange}
-                  placeholder="e.g. Deep Cleaning"
+                  placeholder="z. B. Grundreinigung"
                 />
               </div>
 
               <div className="space-y-2 md:col-span-2">
-                <label className="text-sm font-medium">Location</label>
+                <label className="text-sm font-medium">Einsatzort</label>
                 <Input
                   name="location_address"
                   required
                   value={formData.location_address}
                   onChange={handleChange}
-                  placeholder="123 Main St, City"
+                  placeholder="Musterstraße 1, 12345 Berlin"
                 />
               </div>
 
               <div className="space-y-2">
-                <label className="text-sm font-medium">Scheduled Start</label>
+                <label className="text-sm font-medium">Startdatum & -uhrzeit</label>
                 <Input
                   name="scheduled_start"
                   type="datetime-local"
@@ -172,41 +172,41 @@ export default function NewJobPage() {
               <div className="space-y-2">
                 <label className="text-sm font-medium">Status</label>
                 <Select name="status" value={formData.status} onChange={handleChange}>
-                  <option value="open">Open</option>
-                  <option value="in_progress">In Progress</option>
-                  <option value="completed">Completed</option>
+                  <option value="open">Offen</option>
+                  <option value="in_progress">In Arbeit</option>
+                  <option value="completed">Erledigt</option>
                 </Select>
               </div>
 
               <div className="space-y-2 md:col-span-2">
-                <label className="text-sm font-medium">Assign To Employee</label>
+                <label className="text-sm font-medium">Mitarbeiter zuweisen</label>
                 <Select name="assigned_to" value={formData.assigned_to} onChange={handleChange}>
-                  <option value="">Unassigned</option>
+                  <option value="">Nicht zugewiesen</option>
                   {employees.map((emp) => (
                     <option key={emp.id} value={emp.id}>
                       {emp.full_name} ({emp.email})
                     </option>
                   ))}
                 </Select>
-                <p className="text-xs text-muted-foreground">Select an existing employee to assign this job. You can leave it unassigned.</p>
+                <p className="text-xs text-muted-foreground">Wählen Sie einen Mitarbeiter für diesen Auftrag. Sie können das Feld auch leer lassen.</p>
               </div>
 
               <div className="space-y-2 md:col-span-2">
-                <label className="text-sm font-medium">Notes</label>
+                <label className="text-sm font-medium">Notizen</label>
                 <textarea
                   name="notes"
                   className="w-full rounded-md border border-input bg-transparent px-3 py-2 text-sm shadow-sm ring-offset-background placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-primary disabled:cursor-not-allowed disabled:opacity-50 min-h-[100px]"
                   value={formData.notes}
                   onChange={handleChange}
-                  placeholder="Any additional notes for the employee..."
+                  placeholder="Zusätzliche Hinweise für den Mitarbeiter…"
                 />
               </div>
             </div>
           </CardContent>
           <CardFooter className="flex justify-end gap-2 border-t p-6">
-            <Button variant="outline" type="button" onClick={() => router.back()}>Cancel</Button>
+            <Button variant="outline" type="button" onClick={() => router.back()}>Abbrechen</Button>
             <Button type="submit" disabled={loading}>
-              {loading ? "Creating..." : "Create Job"}
+              {loading ? "Wird erstellt…" : "Auftrag erstellen"}
             </Button>
           </CardFooter>
         </form>

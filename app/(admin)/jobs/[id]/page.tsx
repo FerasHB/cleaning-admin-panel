@@ -71,7 +71,7 @@ export default function EditJobPage() {
 
       if (jobError) {
         console.error("Failed to fetch job:", jobError)
-        alert("Failed to load job")
+        alert("Auftrag konnte nicht geladen werden.")
         setLoading(false)
         return
       }
@@ -189,7 +189,7 @@ export default function EditJobPage() {
   }
 
   const handleDelete = async () => {
-    if (!confirm("Are you sure you want to delete this job? This action cannot be undone.")) {
+    if (!confirm("Auftrag wirklich löschen? Diese Aktion kann nicht rückgängig gemacht werden.")) {
       return
     }
 
@@ -209,7 +209,7 @@ export default function EditJobPage() {
   }
 
   if (loading) {
-    return <div className="p-8 text-center">Loading job data...</div>
+    return <div className="p-8 text-center">Auftrag wird geladen…</div>
   }
 
   return (
@@ -219,12 +219,12 @@ export default function EditJobPage() {
           <Button variant="ghost" size="icon" onClick={() => router.back()}>
             <ArrowLeft className="h-4 w-4" />
           </Button>
-          <PageHeader title="Edit Job" />
+          <PageHeader title="Auftrag bearbeiten" />
         </div>
 
         <Button variant="destructive" onClick={handleDelete} disabled={deleting}>
           <Trash2 className="mr-2 h-4 w-4" />
-          {deleting ? "Deleting..." : "Delete Job"}
+          {deleting ? "Wird gelöscht…" : "Auftrag löschen"}
         </Button>
       </div>
 
@@ -233,7 +233,7 @@ export default function EditJobPage() {
           <CardContent className="space-y-4 pt-6">
             <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
               <div className="space-y-2">
-                <label className="text-sm font-medium">Customer Name</label>
+                <label className="text-sm font-medium">Kundenname</label>
                 <Input
                   name="customer_name"
                   required
@@ -243,7 +243,7 @@ export default function EditJobPage() {
               </div>
 
               <div className="space-y-2">
-                <label className="text-sm font-medium">Service</label>
+                <label className="text-sm font-medium">Leistung</label>
                 <Input
                   name="service_name"
                   required
@@ -253,7 +253,7 @@ export default function EditJobPage() {
               </div>
 
               <div className="space-y-2 md:col-span-2">
-                <label className="text-sm font-medium">Location</label>
+                <label className="text-sm font-medium">Einsatzort</label>
                 <Input
                   name="location_address"
                   required
@@ -263,7 +263,7 @@ export default function EditJobPage() {
               </div>
 
               <div className="space-y-2">
-                <label className="text-sm font-medium">Scheduled Start</label>
+                <label className="text-sm font-medium">Startdatum & -uhrzeit</label>
                 <Input
                   name="scheduled_start"
                   type="datetime-local"
@@ -275,16 +275,16 @@ export default function EditJobPage() {
               <div className="space-y-2">
                 <label className="text-sm font-medium">Status</label>
                 <Select name="status" value={formData.status} onChange={handleChange}>
-                  <option value="open">Open</option>
-                  <option value="in_progress">In Progress</option>
-                  <option value="completed">Completed</option>
+                  <option value="open">Offen</option>
+                  <option value="in_progress">In Arbeit</option>
+                  <option value="completed">Erledigt</option>
                 </Select>
               </div>
 
               <div className="space-y-2 md:col-span-2">
-                <label className="text-sm font-medium">Assign To Employee</label>
+                <label className="text-sm font-medium">Mitarbeiter zuweisen</label>
                 <Select name="assigned_to" value={formData.assigned_to} onChange={handleChange}>
-                  <option value="">Unassigned</option>
+                  <option value="">Nicht zugewiesen</option>
                   {employees.map((emp) => (
                     <option key={emp.id} value={emp.id}>
                       {emp.full_name}
@@ -294,7 +294,7 @@ export default function EditJobPage() {
               </div>
 
               <div className="space-y-2 md:col-span-2">
-                <label className="text-sm font-medium">Notes</label>
+                <label className="text-sm font-medium">Notizen</label>
                 <textarea
                   name="notes"
                   className="min-h-[100px] w-full rounded-md border border-input bg-transparent px-3 py-2 text-sm shadow-sm ring-offset-background placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-primary disabled:cursor-not-allowed disabled:opacity-50"
@@ -307,10 +307,10 @@ export default function EditJobPage() {
 
           <CardFooter className="flex justify-end gap-2 border-t p-6">
             <Button variant="outline" type="button" onClick={() => router.back()}>
-              Cancel
+              Abbrechen
             </Button>
             <Button type="submit" disabled={saving}>
-              {saving ? "Saving..." : "Save Changes"}
+              {saving ? "Wird gespeichert…" : "Änderungen speichern"}
             </Button>
           </CardFooter>
         </form>
