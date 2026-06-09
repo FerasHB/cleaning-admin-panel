@@ -9,13 +9,31 @@ import { Input } from "@/components/ui/input"
 import { Select } from "@/components/ui/select"
 import { Card, CardContent, CardFooter } from "@/components/ui/card"
 import { ArrowLeft } from "lucide-react"
-import { Database } from "@/lib/supabase/database.types"
+import {
+  JobScheduleFields,
+  type JobScheduleValue,
+  type JobScheduleErrors,
+} from "@/components/jobs/JobScheduleFields"
+import { buildJobSchedulePayload } from "@/lib/jobs/schedule"
+import type { Database } from "@/lib/supabase/database.types"
 
+type EmployeeOption = Pick<
+  Database["public"]["Tables"]["profiles"]["Row"],
+  "id" | "full_name"
+>
+type JobStatus = Database["public"]["Enums"]["job_status"]
 
+const EMPTY_SCHEDULE: JobScheduleValue = {
+  jobType: "single",
+  dateTimeLocal: "",
+  recurringDays: [],
+  time: "",
+  isActive: true,
+}
 
 export default function NewJobPage() {
   const [loading, setLoading] = useState(false)
-  const [employees, setEmployees] = useState<any[]>([])
+  const [employees, setEmployees] = useState<EmployeeOption[]>([])
   const router = useRouter()
   const supabase = createClient()
 
@@ -23,15 +41,20 @@ export default function NewJobPage() {
     customer_name: "",
     location_address: "",
     service_name: "",
-    scheduled_start: "",
-    status: "open" as "open" | "in_progress" | "completed",
+    status: "open" as JobStatus,
     assigned_to: "",
     notes: "",
   })
 
+  const [schedule, setSchedule] = useState<JobScheduleValue>(EMPTY_SCHEDULE)
+  const [scheduleErrors, setScheduleErrors] = useState<JobScheduleErrors>({})
+
   useEffect(() => {
     const fetchEmployees = async () => {
-      const { data } = await supabase.from("profiles").select("*").eq("role", "employee")
+      const { data } = await supabase
+        .from("profiles")
+        .select("id, full_name")
+        .eq("role", "employee")
       if (data) {
         setEmployees(data)
       }
@@ -45,8 +68,33 @@ export default function NewJobPage() {
     setFormData({ ...formData, [e.target.name]: e.target.value })
   }
 
+  const patchSchedule = (patch: Partial<JobScheduleValue>) => {
+    setSchedule((prev) => ({ ...prev, ...patch }))
+    setScheduleErrors({})
+  }
+
+  // Validierung wie Mobile (single: Datum+Uhrzeit; recurring: ≥1 Wochentag + Uhrzeit)
+  const validateSchedule = (): boolean => {
+    const next: JobScheduleErrors = {}
+    if (schedule.jobType === "single") {
+      if (!schedule.dateTimeLocal) {
+        next.dateTimeLocal = "Bitte Datum und Uhrzeit wählen."
+      }
+    } else {
+      if (schedule.recurringDays.length === 0) {
+        next.recurringDays = "Bitte mindestens einen Wochentag wählen."
+      }
+      if (!schedule.time) {
+        next.time = "Bitte eine Uhrzeit wählen."
+      }
+    }
+    setScheduleErrors(next)
+    return Object.keys(next).length === 0
+  }
+
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
+    if (!validateSchedule()) return
     setLoading(true)
 
     const {
@@ -86,18 +134,36 @@ export default function NewJobPage() {
       return
     }
 
+    // Terminierung (single/recurring) wie Mobile aufbauen — schreibt
+    // job_type/date/start_time/recurring_days/is_active/scheduled_start.
+    let schedulePayload
+    try {
+      schedulePayload = buildJobSchedulePayload(
+        schedule.jobType === "single"
+          ? { jobType: "single", dateTimeLocal: schedule.dateTimeLocal }
+          : {
+              jobType: "recurring",
+              recurringDays: schedule.recurringDays,
+              time: schedule.time,
+              isActive: schedule.isActive,
+            }
+      )
+    } catch (err) {
+      alert(err instanceof Error ? err.message : "Ungültige Terminierung")
+      setLoading(false)
+      return
+    }
+
     const payload = {
       company_id: profile.company_id,
       created_by: user.id,
       customer_name: formData.customer_name,
       location_address: formData.location_address,
       service_name: formData.service_name,
-      scheduled_start: formData.scheduled_start
-        ? new Date(formData.scheduled_start).toISOString()
-        : null,
       status: formData.status,
       assigned_to: formData.assigned_to === "" ? null : formData.assigned_to,
       notes: formData.notes,
+      ...schedulePayload,
     }
 
     const { error } = await supabase.from("jobs").insert([payload])
@@ -159,13 +225,13 @@ export default function NewJobPage() {
                 />
               </div>
 
-              <div className="space-y-2">
-                <label className="text-sm font-medium">Startdatum & -uhrzeit</label>
-                <Input
-                  name="scheduled_start"
-                  type="datetime-local"
-                  value={formData.scheduled_start}
-                  onChange={handleChange}
+              {/* ── Terminierung (single / recurring) ── */}
+              <div className="md:col-span-2">
+                <JobScheduleFields
+                  value={schedule}
+                  onChange={patchSchedule}
+                  errors={scheduleErrors}
+                  disabled={loading}
                 />
               </div>
 
@@ -184,7 +250,7 @@ export default function NewJobPage() {
                   <option value="">Nicht zugewiesen</option>
                   {employees.map((emp) => (
                     <option key={emp.id} value={emp.id}>
-                      {emp.full_name} ({emp.email})
+                      {emp.full_name}
                     </option>
                   ))}
                 </Select>

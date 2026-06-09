@@ -9,6 +9,7 @@ import { Select } from "@/components/ui/select"
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
 import { Badge } from "@/components/ui/badge"
 import { Briefcase, MapPin, Plus, Search, Pencil } from "lucide-react"
+import { getJobDisplayTime, getRecurringDaysLabel } from "@/lib/jobs/jobSchedule"
 import { Database } from "@/lib/supabase/database.types"
 
 type Job = Database["public"]["Tables"]["jobs"]["Row"]
@@ -27,9 +28,9 @@ const STATUS_VARIANT: Record<string, "warning" | "info" | "success"> = {
 
 function formatDate(iso: string | null) {
   if (!iso) return "—"
-  return new Date(iso).toLocaleDateString("en-US", {
-    month: "short",
-    day:   "numeric",
+  return new Date(iso).toLocaleDateString("de-DE", {
+    day:   "2-digit",
+    month: "2-digit",
     year:  "numeric",
   })
 }
@@ -116,7 +117,7 @@ export default function JobsPage() {
               <TableHead className="w-[200px] font-semibold text-foreground">Kunde</TableHead>
               <TableHead className="font-semibold text-foreground">Leistung</TableHead>
               <TableHead className="hidden font-semibold text-foreground md:table-cell">Adresse</TableHead>
-              <TableHead className="hidden font-semibold text-foreground sm:table-cell">Datum</TableHead>
+              <TableHead className="hidden font-semibold text-foreground sm:table-cell">Termin</TableHead>
               <TableHead className="font-semibold text-foreground">Status</TableHead>
               <TableHead className="w-[60px]" />
             </TableRow>
@@ -174,7 +175,18 @@ export default function JobsPage() {
                     )}
                   </TableCell>
                   <TableCell className="hidden py-3.5 text-sm text-muted-foreground sm:table-cell">
-                    {formatDate(job.scheduled_start)}
+                    {job.job_type === "recurring"
+                      ? getRecurringDaysLabel(job)
+                      : formatDate(
+                          job.scheduled_start ??
+                            (job.date ? `${job.date}T00:00` : null)
+                        )}
+                    {getJobDisplayTime(job) ? (
+                      <span className="text-muted-foreground/70">
+                        {" "}
+                        · {getJobDisplayTime(job)} Uhr
+                      </span>
+                    ) : null}
                   </TableCell>
                   <TableCell className="py-3.5">
                     <Badge variant={STATUS_VARIANT[job.status] ?? "outline"}>

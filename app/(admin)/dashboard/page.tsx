@@ -15,6 +15,11 @@ import {
 } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
+import {
+  getJobDisplayTime,
+  getRecurringDaysLabel,
+  isJobToday,
+} from "@/lib/jobs/jobSchedule"
 import { Database } from "@/lib/supabase/database.types"
 
 type Job = Database["public"]["Tables"]["jobs"]["Row"]
@@ -33,38 +38,24 @@ const STATUS_VARIANT: Record<string, "warning" | "info" | "success"> = {
 
 function formatDate(iso: string | null) {
   if (!iso) return "—"
-  return new Date(iso).toLocaleDateString("en-US", {
-    month: "short",
-    day:   "numeric",
+  return new Date(iso).toLocaleDateString("de-DE", {
+    day:   "2-digit",
+    month: "2-digit",
     year:  "numeric",
   })
-}
-
-function formatTime(iso: string | null) {
-  if (!iso) return "—"
-  return new Date(iso).toLocaleTimeString("en-US", {
-    hour:   "numeric",
-    minute: "2-digit",
-    hour12: true,
-  })
-}
-
-function isToday(iso: string | null) {
-  if (!iso) return false
-  return new Date(iso).toDateString() === new Date().toDateString()
 }
 
 export default function DashboardPage() {
   const { jobs, loading: jobsLoading, counts } = useAdminJobs()
   const recentJobs = jobs.slice(0, 5)
 
+  // "Heute" recurring-fähig (single per Datum/scheduled_start, recurring per
+  // Wochentag, nur aktive); Sortierung nach Anzeige-Uhrzeit.
   const todaysJobs = jobs
-    .filter((j) => isToday(j.scheduled_start))
-    .sort((a, b) => {
-      if (!a.scheduled_start) return 1
-      if (!b.scheduled_start) return -1
-      return new Date(a.scheduled_start).getTime() - new Date(b.scheduled_start).getTime()
-    })
+    .filter((j) => isJobToday(j))
+    .sort((a, b) =>
+      (getJobDisplayTime(a) ?? "").localeCompare(getJobDisplayTime(b) ?? ""),
+    )
 
   const supabase = createClient()
   const [totalEmployees, setTotalEmployees] = useState<number>(0)
@@ -77,11 +68,8 @@ export default function DashboardPage() {
       .then(({ count }) => setTotalEmployees(count ?? 0))
   }, [])
 
-  // Proportion bar — derived from existing counts, no new data
+  // Total — used for the "X Aufträge gesamt" footer
   const total = counts.open + counts.inProgress + counts.completed
-  const openPct       = total > 0 ? (counts.open        / total) * 100 : 0
-  const inProgressPct = total > 0 ? (counts.inProgress  / total) * 100 : 0
-  const completedPct  = total > 0 ? (counts.completed   / total) * 100 : 0
 
   return (
     <div className="space-y-6">
@@ -115,64 +103,50 @@ export default function DashboardPage() {
         <Card className="sm:col-span-2">
           <CardHeader className="px-5 pb-2 pt-4">
             <CardTitle className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
-              Auftragsübersicht
+              Aktueller Auftragsstatus
             </CardTitle>
           </CardHeader>
-          <CardContent className="px-5 pb-5">
+          <CardContent className="px-5 pb-4">
             {jobsLoading ? (
-              <p className="text-sm text-muted-foreground">Loading…</p>
+              <p className="text-sm text-muted-foreground">Laden…</p>
             ) : (
               <>
-                {/* Three status counts */}
-                <div className="grid grid-cols-3 gap-4 mb-4">
-                  <div>
-                    <p className="text-3xl font-bold text-amber-600">
+                <div className="space-y-2">
+                  {/* Offen */}
+                  <div className="flex items-center justify-between rounded-lg bg-amber-50 px-4 py-2.5">
+                    <div>
+                      <p className="text-sm font-semibold text-amber-800">Offen</p>
+                      <p className="text-xs text-amber-600">wartet auf Bearbeitung</p>
+                    </div>
+                    <span className="text-2xl font-bold text-amber-700">
                       {counts.open}
-                    </p>
-                    <p className="mt-0.5 text-xs font-medium text-muted-foreground">
-                      Offen
-                    </p>
+                    </span>
                   </div>
-                  <div>
-                    <p className="text-3xl font-bold text-blue-600">
+
+                  {/* In Arbeit */}
+                  <div className="flex items-center justify-between rounded-lg bg-blue-50 px-4 py-2.5">
+                    <div>
+                      <p className="text-sm font-semibold text-blue-800">In Arbeit</p>
+                      <p className="text-xs text-blue-600">wird gerade ausgeführt</p>
+                    </div>
+                    <span className="text-2xl font-bold text-blue-700">
                       {counts.inProgress}
-                    </p>
-                    <p className="mt-0.5 text-xs font-medium text-muted-foreground">
-                      In Arbeit
-                    </p>
+                    </span>
                   </div>
-                  <div>
-                    <p className="text-3xl font-bold text-emerald-600">
+
+                  {/* Erledigt */}
+                  <div className="flex items-center justify-between rounded-lg bg-emerald-50 px-4 py-2.5">
+                    <div>
+                      <p className="text-sm font-semibold text-emerald-800">Erledigt</p>
+                      <p className="text-xs text-emerald-600">abgeschlossen</p>
+                    </div>
+                    <span className="text-2xl font-bold text-emerald-700">
                       {counts.completed}
-                    </p>
-                    <p className="mt-0.5 text-xs font-medium text-muted-foreground">
-                      Erledigt
-                    </p>
+                    </span>
                   </div>
                 </div>
 
-                {/* Proportion bar */}
-                <div className="h-2 w-full overflow-hidden rounded-full bg-muted">
-                  {total > 0 ? (
-                    <div className="flex h-full w-full">
-                      <div
-                        className="h-full bg-amber-400"
-                        style={{ width: `${openPct}%` }}
-                      />
-                      <div
-                        className="h-full bg-blue-400"
-                        style={{ width: `${inProgressPct}%` }}
-                      />
-                      <div
-                        className="h-full bg-emerald-400"
-                        style={{ width: `${completedPct}%` }}
-                      />
-                    </div>
-                  ) : (
-                    <div className="h-full w-full bg-muted" />
-                  )}
-                </div>
-                <p className="mt-2 text-xs text-muted-foreground">
+                <p className="mt-3 text-xs text-muted-foreground">
                   {total > 0 ? `${total} Aufträge gesamt` : "Noch keine Aufträge"}
                 </p>
               </>
@@ -252,7 +226,7 @@ export default function DashboardPage() {
                   {/* Time column */}
                   <div className="mr-4 flex w-16 shrink-0 flex-col items-start">
                     <span className="text-sm font-semibold tabular-nums text-foreground">
-                      {formatTime(job.scheduled_start)}
+                      {getJobDisplayTime(job) ? `${getJobDisplayTime(job)} Uhr` : "—"}
                     </span>
                   </div>
 
@@ -349,7 +323,9 @@ export default function DashboardPage() {
                   </div>
                   <div className="ml-4 flex shrink-0 items-center gap-3">
                     <span className="hidden text-xs text-muted-foreground sm:block">
-                      {formatDate(job.scheduled_start)}
+                      {job.job_type === "recurring"
+                        ? getRecurringDaysLabel(job)
+                        : formatDate(job.scheduled_start)}
                     </span>
                     <Badge variant={STATUS_VARIANT[job.status] ?? "outline"}>
                       {STATUS_LABEL[job.status] ?? job.status}

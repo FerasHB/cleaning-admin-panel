@@ -9,23 +9,47 @@ import { Input } from "@/components/ui/input"
 import { Select } from "@/components/ui/select"
 import { Card, CardContent, CardFooter } from "@/components/ui/card"
 import { ArrowLeft, Trash2 } from "lucide-react"
+import {
+  JobScheduleFields,
+  type JobScheduleValue,
+  type JobScheduleErrors,
+} from "@/components/jobs/JobScheduleFields"
+import { buildJobSchedulePayload } from "@/lib/jobs/schedule"
+import { normalizeTime } from "@/lib/date"
+import type { WeekdayKey } from "@/lib/recurrence"
 import { Database } from "@/lib/supabase/database.types"
 
-type JobRow = Database["public"]["Tables"]["jobs"]["Row"]
 type JobUpdate = Database["public"]["Tables"]["jobs"]["Update"]
 type ProfileRow = Database["public"]["Tables"]["profiles"]["Row"]
 type JobStatus = Database["public"]["Enums"]["job_status"]
 
-type EmployeeRow = Pick<ProfileRow, "id" | "full_name" | "role" | "company_id">
+type EmployeeRow = Pick<ProfileRow, "id" | "full_name">
 
 type FormDataState = {
   customer_name: string
   location_address: string
   service_name: string
-  scheduled_start: string
   status: JobStatus
   assigned_to: string
   notes: string
+}
+
+const EMPTY_SCHEDULE: JobScheduleValue = {
+  jobType: "single",
+  dateTimeLocal: "",
+  recurringDays: [],
+  time: "",
+  isActive: true,
+}
+
+// Wandelt einen UTC-ISO-Zeitstempel in den lokalen Wert eines
+// <input type="datetime-local"> ("YYYY-MM-DDTHH:mm") um.
+function isoToDateTimeLocal(iso: string): string {
+  const d = new Date(iso)
+  if (isNaN(d.getTime())) return ""
+  return new Date(d.getTime() - d.getTimezoneOffset() * 60000)
+    .toISOString()
+    .slice(0, 16)
 }
 
 export default function EditJobPage() {
@@ -44,11 +68,13 @@ export default function EditJobPage() {
     customer_name: "",
     location_address: "",
     service_name: "",
-    scheduled_start: "",
     status: "open",
     assigned_to: "",
     notes: "",
   })
+
+  const [schedule, setSchedule] = useState<JobScheduleValue>(EMPTY_SCHEDULE)
+  const [scheduleErrors, setScheduleErrors] = useState<JobScheduleErrors>({})
 
   useEffect(() => {
     const fetchData = async () => {
@@ -58,7 +84,7 @@ export default function EditJobPage() {
         await Promise.all([
           supabase
             .from("profiles")
-            .select("id, full_name, role, company_id")
+            .select("id, full_name")
             .eq("role", "employee"),
           supabase.from("jobs").select("*").eq("id", jobId).single(),
         ])
@@ -77,24 +103,40 @@ export default function EditJobPage() {
       }
 
       if (jobData) {
-        let formattedDate = ""
-
-        if (jobData.scheduled_start) {
-          const d = new Date(jobData.scheduled_start)
-          formattedDate = new Date(d.getTime() - d.getTimezoneOffset() * 60000)
-            .toISOString()
-            .slice(0, 16)
-        }
-
         setFormData({
           customer_name: jobData.customer_name ?? "",
           location_address: jobData.location_address ?? "",
           service_name: jobData.service_name ?? "",
-          scheduled_start: formattedDate,
           status: jobData.status ?? "open",
           assigned_to: jobData.assigned_to ?? "",
           notes: jobData.notes ?? "",
         })
+
+        // Terminierung in den Formular-State laden (single vs. recurring).
+        if (jobData.job_type === "recurring") {
+          setSchedule({
+            jobType: "recurring",
+            dateTimeLocal: "",
+            recurringDays: (jobData.recurring_days ?? []) as WeekdayKey[],
+            time: normalizeTime(jobData.start_time) ?? "",
+            isActive: jobData.is_active ?? true,
+          })
+        } else {
+          // single: bevorzugt scheduled_start, Fallback date + start_time (Alt-Daten)
+          let dateTimeLocal = ""
+          if (jobData.scheduled_start) {
+            dateTimeLocal = isoToDateTimeLocal(jobData.scheduled_start)
+          } else if (jobData.date) {
+            dateTimeLocal = `${jobData.date}T${normalizeTime(jobData.start_time) ?? "00:00"}`
+          }
+          setSchedule({
+            jobType: "single",
+            dateTimeLocal,
+            recurringDays: [],
+            time: "",
+            isActive: true,
+          })
+        }
       }
 
       setLoading(false)
@@ -112,15 +154,37 @@ export default function EditJobPage() {
 
     setFormData((prev) => ({
       ...prev,
-      [name]:
-        name === "status"
-          ? (value as JobStatus)
-          : value,
+      [name]: name === "status" ? (value as JobStatus) : value,
     }))
+  }
+
+  const patchSchedule = (patch: Partial<JobScheduleValue>) => {
+    setSchedule((prev) => ({ ...prev, ...patch }))
+    setScheduleErrors({})
+  }
+
+  // Validierung wie Mobile (single: Datum+Uhrzeit; recurring: ≥1 Wochentag + Uhrzeit)
+  const validateSchedule = (): boolean => {
+    const next: JobScheduleErrors = {}
+    if (schedule.jobType === "single") {
+      if (!schedule.dateTimeLocal) {
+        next.dateTimeLocal = "Bitte Datum und Uhrzeit wählen."
+      }
+    } else {
+      if (schedule.recurringDays.length === 0) {
+        next.recurringDays = "Bitte mindestens einen Wochentag wählen."
+      }
+      if (!schedule.time) {
+        next.time = "Bitte eine Uhrzeit wählen."
+      }
+    }
+    setScheduleErrors(next)
+    return Object.keys(next).length === 0
   }
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
+    if (!validateSchedule()) return
     setSaving(true)
 
     const {
@@ -160,16 +224,32 @@ export default function EditJobPage() {
       return
     }
 
+    let schedulePayload
+    try {
+      schedulePayload = buildJobSchedulePayload(
+        schedule.jobType === "single"
+          ? { jobType: "single", dateTimeLocal: schedule.dateTimeLocal }
+          : {
+              jobType: "recurring",
+              recurringDays: schedule.recurringDays,
+              time: schedule.time,
+              isActive: schedule.isActive,
+            }
+      )
+    } catch (err) {
+      alert(err instanceof Error ? err.message : "Ungültige Terminierung")
+      setSaving(false)
+      return
+    }
+
     const payload: JobUpdate = {
       customer_name: formData.customer_name,
       location_address: formData.location_address,
       service_name: formData.service_name,
-      scheduled_start: formData.scheduled_start
-        ? new Date(formData.scheduled_start).toISOString()
-        : null,
       status: formData.status,
       assigned_to: formData.assigned_to === "" ? null : formData.assigned_to,
       notes: formData.notes,
+      ...schedulePayload,
     }
 
     const { error } = await supabase
@@ -262,13 +342,13 @@ export default function EditJobPage() {
                 />
               </div>
 
-              <div className="space-y-2">
-                <label className="text-sm font-medium">Startdatum & -uhrzeit</label>
-                <Input
-                  name="scheduled_start"
-                  type="datetime-local"
-                  value={formData.scheduled_start}
-                  onChange={handleChange}
+              {/* ── Terminierung (single / recurring) ── */}
+              <div className="md:col-span-2">
+                <JobScheduleFields
+                  value={schedule}
+                  onChange={patchSchedule}
+                  errors={scheduleErrors}
+                  disabled={saving}
                 />
               </div>
 

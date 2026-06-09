@@ -2,6 +2,7 @@
 
 import { useEffect, useRef, useState } from "react"
 import { createClient } from "@/lib/supabase/client"
+import { isJobToday } from "@/lib/jobs/jobSchedule"
 import { Database } from "@/lib/supabase/database.types"
 
 type Job = Database["public"]["Tables"]["jobs"]["Row"]
@@ -21,15 +22,13 @@ export type UseAdminJobsResult = {
 }
 
 function deriveCounts(jobs: Job[]): AdminJobCounts {
-  const todayStr = new Date().toDateString()
   return {
     open: jobs.filter((j) => j.status === "open").length,
     inProgress: jobs.filter((j) => j.status === "in_progress").length,
     completed: jobs.filter((j) => j.status === "completed").length,
-    today: jobs.filter((j) => {
-      if (!j.scheduled_start) return false
-      return new Date(j.scheduled_start).toDateString() === todayStr
-    }).length,
+    // "Heute fällig" recurring-fähig: single per Datum/scheduled_start,
+    // recurring per Wochentag, nur aktive — zentrale Logik aus jobSchedule.
+    today: jobs.filter((j) => isJobToday(j)).length,
   }
 }
 
@@ -46,7 +45,9 @@ export function useAdminJobs(): UseAdminJobsResult {
       const { data, error } = await supabase
         .from("jobs")
         .select("*")
-        .order("scheduled_start", { ascending: false })
+        // created_at statt scheduled_start: recurring Jobs haben kein
+        // scheduled_start (NULL) und würden sonst zusammenklumpen.
+        .order("created_at", { ascending: false })
 
       if (!mounted) return
       if (error) {
