@@ -1,33 +1,55 @@
 "use client"
 
 import * as React from "react"
-import { useState, useEffect } from "react"
+import { useEffect, useState } from "react"
 import Link from "next/link"
-import { usePathname } from "next/navigation"
-import { Briefcase, LayoutDashboard, LogOut, Users } from "lucide-react"
+import { usePathname, useRouter } from "next/navigation"
+import {
+  Briefcase,
+  LayoutDashboard,
+  LogOut,
+  MessageSquare,
+  Settings,
+  Users,
+} from "lucide-react"
 import { cn } from "@/lib/utils"
 import { createClient } from "@/lib/supabase/client"
-import { useRouter } from "next/navigation"
 
-const sidebarItems = [
+const navGroups = [
   {
-    title: "Übersicht",
-    href: "/dashboard",
-    icon: LayoutDashboard,
+    label: "Übersicht",
+    items: [{ title: "Dashboard", href: "/dashboard", icon: LayoutDashboard }],
   },
   {
-    title: "Aufträge",
-    href: "/jobs",
-    icon: Briefcase,
+    label: "Verwaltung",
+    items: [
+      { title: "Aufträge", href: "/jobs", icon: Briefcase },
+      { title: "Mitarbeiter", href: "/employees", icon: Users },
+    ],
   },
   {
-    title: "Mitarbeiter",
-    href: "/employees",
-    icon: Users,
+    label: "Kommunikation",
+    items: [{ title: "Nachrichten", href: "/messages", icon: MessageSquare }],
+  },
+  {
+    label: "System",
+    items: [{ title: "Einstellungen", href: "/settings", icon: Settings }],
   },
 ]
 
 const FALLBACK = "Cleaning Admin"
+
+function initials(value: string): string {
+  return (
+    value
+      .trim()
+      .split(/\s+/)
+      .map((n) => n[0])
+      .slice(0, 2)
+      .join("")
+      .toUpperCase() || "A"
+  )
+}
 
 export function Sidebar({ className }: React.HTMLAttributes<HTMLDivElement>) {
   const pathname = usePathname()
@@ -35,36 +57,38 @@ export function Sidebar({ className }: React.HTMLAttributes<HTMLDivElement>) {
   const supabase = createClient()
 
   const [companyName, setCompanyName] = useState<string | null>(null)
+  const [adminName, setAdminName] = useState<string | null>(null)
+  const [adminEmail, setAdminEmail] = useState<string | null>(null)
 
   useEffect(() => {
-    const fetchCompanyName = async () => {
-      // Step 1: get the current user
-      const { data: { user } } = await supabase.auth.getUser()
+    const load = async () => {
+      const {
+        data: { user },
+      } = await supabase.auth.getUser()
       if (!user) return
 
-      // Step 2: get profile (which has company_id)
+      setAdminEmail(user.email ?? null)
+
       const { data: profile } = await supabase
         .from("profiles")
-        .select("company_id")
+        .select("full_name, company_id")
         .eq("id", user.id)
         .single()
 
+      if (profile?.full_name) setAdminName(profile.full_name)
       if (!profile?.company_id) return
 
-      // Step 3: get company name
       const { data: company } = await supabase
         .from("companies")
         .select("name")
         .eq("id", profile.company_id)
         .single()
 
-      if (company?.name) {
-        setCompanyName(company.name)
-      }
+      if (company?.name) setCompanyName(company.name)
     }
 
-    fetchCompanyName()
-  }, []) // runs once on mount
+    load()
+  }, [])
 
   const handleLogout = async () => {
     await supabase.auth.signOut()
@@ -72,22 +96,25 @@ export function Sidebar({ className }: React.HTMLAttributes<HTMLDivElement>) {
     router.refresh()
   }
 
-  const displayName = companyName ?? FALLBACK
-  const initial = displayName.trim()[0]?.toUpperCase() ?? "C"
+  const displayCompany = companyName ?? FALLBACK
+  const companyInitial = displayCompany.trim()[0]?.toUpperCase() ?? "C"
+  const accountLabel = adminName ?? adminEmail ?? "Admin"
 
   return (
-    <div className={cn("fixed hidden h-screen w-64 flex-col border-r bg-card md:flex", className)}>
-
+    <div
+      className={cn(
+        "fixed hidden h-screen w-64 flex-col border-r bg-card md:flex",
+        className,
+      )}
+    >
       {/* ── Workspace header ── */}
       <div className="flex h-[60px] items-center gap-3 border-b px-4">
-        {/* Company initial avatar */}
         <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-primary text-sm font-bold text-primary-foreground">
-          {initial}
+          {companyInitial}
         </div>
-        {/* Company name + label */}
         <div className="min-w-0 flex-1">
           <p className="truncate text-sm font-semibold leading-tight text-foreground">
-            {displayName}
+            {displayCompany}
           </p>
           <p className="text-[11px] font-medium leading-tight text-muted-foreground">
             Admin-Bereich
@@ -95,44 +122,71 @@ export function Sidebar({ className }: React.HTMLAttributes<HTMLDivElement>) {
         </div>
       </div>
 
-      {/* ── Navigation ── */}
-      <div className="flex-1 overflow-auto py-3">
-        <nav className="grid gap-0.5 px-3">
-          {sidebarItems.map((item, index) => {
-            const Icon = item.icon
-            const isActive = pathname.startsWith(item.href)
-            return (
-              <Link
-                key={index}
-                href={item.href}
-                className={cn(
-                  "flex items-center gap-3 rounded-lg px-3 py-2 text-sm transition-colors",
-                  isActive
-                    ? "bg-primary/10 font-semibold text-primary"
-                    : "font-medium text-muted-foreground hover:bg-muted hover:text-foreground"
-                )}
-              >
-                <Icon className={cn("h-4 w-4 shrink-0", isActive ? "text-primary" : "text-muted-foreground")} />
-                {item.title}
-              </Link>
-            )
-          })}
+      {/* ── Navigation (gruppiert) ── */}
+      <div className="flex-1 overflow-auto py-4">
+        <nav className="space-y-5 px-3">
+          {navGroups.map((group) => (
+            <div key={group.label}>
+              <p className="px-3 pb-1.5 text-[11px] font-semibold uppercase tracking-wider text-muted-foreground/70">
+                {group.label}
+              </p>
+              <div className="space-y-0.5">
+                {group.items.map((item) => {
+                  const Icon = item.icon
+                  const isActive = pathname.startsWith(item.href)
+                  return (
+                    <Link
+                      key={item.href}
+                      href={item.href}
+                      className={cn(
+                        "flex items-center gap-3 rounded-lg px-3 py-2 text-sm transition-colors",
+                        isActive
+                          ? "bg-primary/10 font-semibold text-primary"
+                          : "font-medium text-muted-foreground hover:bg-muted hover:text-foreground",
+                      )}
+                    >
+                      <Icon
+                        className={cn(
+                          "h-4 w-4 shrink-0",
+                          isActive ? "text-primary" : "text-muted-foreground",
+                        )}
+                      />
+                      {item.title}
+                    </Link>
+                  )
+                })}
+              </div>
+            </div>
+          ))}
         </nav>
       </div>
 
-      {/* ── Sign out ── */}
-      <div className="border-t px-3 py-3">
-        <button
-          onClick={handleLogout}
-          className="flex w-full items-center gap-3 rounded-lg px-3 py-2 text-sm font-medium text-muted-foreground transition-colors hover:bg-destructive/8 hover:text-destructive"
-        >
-          <div className="flex h-7 w-7 shrink-0 items-center justify-center rounded-md bg-muted">
-            <LogOut className="h-3.5 w-3.5" />
+      {/* ── Account-Block ── */}
+      <div className="border-t p-3">
+        <div className="flex items-center gap-3 rounded-lg px-2 py-2">
+          <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-primary/10 text-xs font-semibold text-primary">
+            {initials(accountLabel)}
           </div>
-          <span>Abmelden</span>
-        </button>
+          <div className="min-w-0 flex-1">
+            <p className="truncate text-sm font-medium text-foreground">
+              {adminName ?? "Admin"}
+            </p>
+            {adminEmail && (
+              <p className="truncate text-xs text-muted-foreground">
+                {adminEmail}
+              </p>
+            )}
+          </div>
+          <button
+            onClick={handleLogout}
+            title="Abmelden"
+            aria-label="Abmelden"
+            className="flex h-8 w-8 shrink-0 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-destructive/10 hover:text-destructive"
+          >
+            <LogOut className="h-4 w-4" />
+          </button>
+        </div>
       </div>
-
     </div>
   )
 }

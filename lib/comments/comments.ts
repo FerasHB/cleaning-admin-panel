@@ -129,3 +129,65 @@ export async function addJobComment(
 
   return mapComment(data as unknown as JobCommentRow)
 }
+
+// ── Firmenweiter Kommentar-Feed (für die Nachrichten-Seite) ──
+
+export type RecentComment = {
+  id: string
+  jobId: string
+  message: string
+  createdAt: string
+  authorName: string | null
+  customerName: string | null
+}
+
+type RecentCommentRow = {
+  id: string
+  job_id: string
+  message: string
+  created_at: string
+  jobs?:
+    | { customer_name: string | null }
+    | { customer_name: string | null }[]
+    | null
+  profiles?:
+    | { full_name: string | null }
+    | { full_name: string | null }[]
+    | null
+}
+
+function mapRecent(row: RecentCommentRow): RecentComment {
+  const job = Array.isArray(row.jobs) ? row.jobs[0] : row.jobs
+  const author = Array.isArray(row.profiles) ? row.profiles[0] : row.profiles
+  return {
+    id: row.id,
+    jobId: row.job_id,
+    message: row.message,
+    createdAt: row.created_at,
+    authorName: author?.full_name ?? null,
+    customerName: job?.customer_name ?? null,
+  }
+}
+
+// Liefert die neuesten Kommentare der eigenen Firma (RLS-scoped: Admin sieht
+// firmenweit). Join auf Job (Kundenname) + Autor (Name).
+export async function getRecentCompanyComments(
+  supabase: DB,
+  limit = 20,
+): Promise<RecentComment[]> {
+  const { data, error } = await supabase
+    .from("job_comments")
+    .select(
+      "id, job_id, message, created_at, jobs(customer_name), profiles:author_id(full_name)",
+    )
+    .order("created_at", { ascending: false })
+    .limit(limit)
+
+  if (error) {
+    throw error
+  }
+
+  return (data ?? []).map((item) =>
+    mapRecent(item as unknown as RecentCommentRow),
+  )
+}
