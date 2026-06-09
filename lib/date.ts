@@ -44,3 +44,19 @@ export function isSameLocalDate(
   if (!dateString) return false
   return formatDateISO(ref) === dateString.slice(0, 10)
 }
+
+/** Lesbares Datum+Uhrzeit auf Deutsch, z.B. "09.06.2026, 08:00 Uhr". */
+export function formatDateTimeDE(iso: string | null | undefined): string | null {
+  if (!iso) return null
+  const d = new Date(iso)
+  if (isNaN(d.getTime())) return null
+  return (
+    d.toLocaleString("de-DE", {
+      day: "2-digit",
+      month: "2-digit",
+      year: "numeric",
+      hour: "2-digit",
+      minute: "2-digit",
+    }) + " Uhr"
+  )
+}

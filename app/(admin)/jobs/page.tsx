@@ -8,7 +8,7 @@ import { Input } from "@/components/ui/input"
 import { Select } from "@/components/ui/select"
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
 import { Badge } from "@/components/ui/badge"
-import { Briefcase, MapPin, Plus, Search, Pencil } from "lucide-react"
+import { Briefcase, MapPin, Plus, Search, Eye } from "lucide-react"
 import { getJobDisplayTime, getRecurringDaysLabel } from "@/lib/jobs/jobSchedule"
 import { Database } from "@/lib/supabase/database.types"
 
@@ -196,7 +196,7 @@ export default function JobsPage() {
                   <TableCell className="py-3.5 text-right">
                     <Link href={`/jobs/${job.id}`}>
                       <Button variant="ghost" size="icon" className="h-7 w-7">
-                        <Pencil className="h-3.5 w-3.5" />
+                        <Eye className="h-3.5 w-3.5" />
                       </Button>
                     </Link>
                   </TableCell>

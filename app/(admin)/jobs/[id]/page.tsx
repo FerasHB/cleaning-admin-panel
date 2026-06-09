@@ -1,399 +1,234 @@
 "use client"
 
 import { useEffect, useState } from "react"
+import Link from "next/link"
 import { useParams, useRouter } from "next/navigation"
 import { createClient } from "@/lib/supabase/client"
-import { PageHeader } from "@/components/ui/page-header"
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
-import { Input } from "@/components/ui/input"
-import { Select } from "@/components/ui/select"
-import { Card, CardContent, CardFooter } from "@/components/ui/card"
-import { ArrowLeft, Trash2 } from "lucide-react"
+import { Badge } from "@/components/ui/badge"
+import { EmptyState } from "@/components/ui/empty-state"
 import {
-  JobScheduleFields,
-  type JobScheduleValue,
-  type JobScheduleErrors,
-} from "@/components/jobs/JobScheduleFields"
-import { buildJobSchedulePayload } from "@/lib/jobs/schedule"
-import { normalizeTime } from "@/lib/date"
-import type { WeekdayKey } from "@/lib/recurrence"
-import { Database } from "@/lib/supabase/database.types"
+  ArrowLeft,
+  Briefcase,
+  Calendar,
+  CheckCircle2,
+  Clock,
+  FileText,
+  History,
+  MapPin,
+  MessageSquare,
+  PauseCircle,
+  Pencil,
+  Repeat,
+  User,
+} from "lucide-react"
+import { JobDetailRow } from "@/components/jobs/JobDetailRow"
+import { JobTimeline } from "@/components/jobs/JobTimeline"
+import { JobComments } from "@/components/jobs/JobComments"
+import { getJobDisplayTime, getRecurringDaysLabel } from "@/lib/jobs/jobSchedule"
+import { formatDateTimeDE } from "@/lib/date"
+import type { Database } from "@/lib/supabase/database.types"
 
-type JobUpdate = Database["public"]["Tables"]["jobs"]["Update"]
-type ProfileRow = Database["public"]["Tables"]["profiles"]["Row"]
-type JobStatus = Database["public"]["Enums"]["job_status"]
-
-type EmployeeRow = Pick<ProfileRow, "id" | "full_name">
-
-type FormDataState = {
-  customer_name: string
-  location_address: string
-  service_name: string
-  status: JobStatus
-  assigned_to: string
-  notes: string
+type JobRow = Database["public"]["Tables"]["jobs"]["Row"]
+type JobDetail = JobRow & {
+  assignee:
+    | { full_name: string | null }
+    | { full_name: string | null }[]
+    | null
 }
 
-const EMPTY_SCHEDULE: JobScheduleValue = {
-  jobType: "single",
-  dateTimeLocal: "",
-  recurringDays: [],
-  time: "",
-  isActive: true,
+const STATUS_LABEL: Record<string, string> = {
+  open: "Offen",
+  in_progress: "In Arbeit",
+  completed: "Erledigt",
 }
 
-// Wandelt einen UTC-ISO-Zeitstempel in den lokalen Wert eines
-// <input type="datetime-local"> ("YYYY-MM-DDTHH:mm") um.
-function isoToDateTimeLocal(iso: string): string {
-  const d = new Date(iso)
-  if (isNaN(d.getTime())) return ""
-  return new Date(d.getTime() - d.getTimezoneOffset() * 60000)
-    .toISOString()
-    .slice(0, 16)
+const STATUS_VARIANT: Record<string, "warning" | "info" | "success"> = {
+  open: "warning",
+  in_progress: "info",
+  completed: "success",
 }
 
-export default function EditJobPage() {
-  const [loading, setLoading] = useState(true)
-  const [saving, setSaving] = useState(false)
-  const [deleting, setDeleting] = useState(false)
-  const [employees, setEmployees] = useState<EmployeeRow[]>([])
+function employeeName(job: JobDetail): string {
+  const a = job.assignee
+  const name = Array.isArray(a) ? a[0]?.full_name : a?.full_name
+  return name ?? "Nicht zugewiesen"
+}
 
-  const router = useRouter()
+export default function JobDetailPage() {
   const params = useParams()
+  const router = useRouter()
   const jobId = params.id as string
-
   const supabase = createClient()
 
-  const [formData, setFormData] = useState<FormDataState>({
-    customer_name: "",
-    location_address: "",
-    service_name: "",
-    status: "open",
-    assigned_to: "",
-    notes: "",
-  })
-
-  const [schedule, setSchedule] = useState<JobScheduleValue>(EMPTY_SCHEDULE)
-  const [scheduleErrors, setScheduleErrors] = useState<JobScheduleErrors>({})
+  const [job, setJob] = useState<JobDetail | null>(null)
+  const [loading, setLoading] = useState(true)
 
   useEffect(() => {
-    const fetchData = async () => {
-      setLoading(true)
+    let mounted = true
+    const fetchJob = async () => {
+      const { data, error } = await supabase
+        .from("jobs")
+        .select("*, assignee:profiles!jobs_assigned_to_fkey(full_name)")
+        .eq("id", jobId)
+        .single()
 
-      const [{ data: empData, error: empError }, { data: jobData, error: jobError }] =
-        await Promise.all([
-          supabase
-            .from("profiles")
-            .select("id, full_name")
-            .eq("role", "employee"),
-          supabase.from("jobs").select("*").eq("id", jobId).single(),
-        ])
-
-      if (empError) {
-        console.error("Failed to fetch employees:", empError)
-      } else if (empData) {
-        setEmployees(empData)
+      if (!mounted) return
+      if (error) {
+        console.error("Failed to fetch job:", error)
+        setJob(null)
+      } else {
+        setJob(data as unknown as JobDetail)
       }
-
-      if (jobError) {
-        console.error("Failed to fetch job:", jobError)
-        alert("Auftrag konnte nicht geladen werden.")
-        setLoading(false)
-        return
-      }
-
-      if (jobData) {
-        setFormData({
-          customer_name: jobData.customer_name ?? "",
-          location_address: jobData.location_address ?? "",
-          service_name: jobData.service_name ?? "",
-          status: jobData.status ?? "open",
-          assigned_to: jobData.assigned_to ?? "",
-          notes: jobData.notes ?? "",
-        })
-
-        // Terminierung in den Formular-State laden (single vs. recurring).
-        if (jobData.job_type === "recurring") {
-          setSchedule({
-            jobType: "recurring",
-            dateTimeLocal: "",
-            recurringDays: (jobData.recurring_days ?? []) as WeekdayKey[],
-            time: normalizeTime(jobData.start_time) ?? "",
-            isActive: jobData.is_active ?? true,
-          })
-        } else {
-          // single: bevorzugt scheduled_start, Fallback date + start_time (Alt-Daten)
-          let dateTimeLocal = ""
-          if (jobData.scheduled_start) {
-            dateTimeLocal = isoToDateTimeLocal(jobData.scheduled_start)
-          } else if (jobData.date) {
-            dateTimeLocal = `${jobData.date}T${normalizeTime(jobData.start_time) ?? "00:00"}`
-          }
-          setSchedule({
-            jobType: "single",
-            dateTimeLocal,
-            recurringDays: [],
-            time: "",
-            isActive: true,
-          })
-        }
-      }
-
       setLoading(false)
     }
 
-    if (jobId) {
-      fetchData()
+    if (jobId) fetchJob()
+    return () => {
+      mounted = false
     }
   }, [jobId, supabase])
 
-  const handleChange = (
-    e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement>
-  ) => {
-    const { name, value } = e.target
-
-    setFormData((prev) => ({
-      ...prev,
-      [name]: name === "status" ? (value as JobStatus) : value,
-    }))
-  }
-
-  const patchSchedule = (patch: Partial<JobScheduleValue>) => {
-    setSchedule((prev) => ({ ...prev, ...patch }))
-    setScheduleErrors({})
-  }
-
-  // Validierung wie Mobile (single: Datum+Uhrzeit; recurring: ≥1 Wochentag + Uhrzeit)
-  const validateSchedule = (): boolean => {
-    const next: JobScheduleErrors = {}
-    if (schedule.jobType === "single") {
-      if (!schedule.dateTimeLocal) {
-        next.dateTimeLocal = "Bitte Datum und Uhrzeit wählen."
-      }
-    } else {
-      if (schedule.recurringDays.length === 0) {
-        next.recurringDays = "Bitte mindestens einen Wochentag wählen."
-      }
-      if (!schedule.time) {
-        next.time = "Bitte eine Uhrzeit wählen."
-      }
-    }
-    setScheduleErrors(next)
-    return Object.keys(next).length === 0
-  }
-
-  const handleSubmit = async (e: React.FormEvent) => {
-    e.preventDefault()
-    if (!validateSchedule()) return
-    setSaving(true)
-
-    const {
-      data: { user },
-      error: userError,
-    } = await supabase.auth.getUser()
-
-    if (userError || !user) {
-      console.error(userError)
-      alert("Not authenticated")
-      setSaving(false)
-      return
-    }
-
-    const { data: profile, error: profileError } = await supabase
-      .from("profiles")
-      .select("id, role, company_id")
-      .eq("id", user.id)
-      .single()
-
-    if (profileError || !profile) {
-      console.error(profileError)
-      alert("Profile not found")
-      setSaving(false)
-      return
-    }
-
-    if (profile.role !== "admin") {
-      alert("Only admins can update jobs")
-      setSaving(false)
-      return
-    }
-
-    if (!profile.company_id) {
-      alert("Admin has no company assigned")
-      setSaving(false)
-      return
-    }
-
-    let schedulePayload
-    try {
-      schedulePayload = buildJobSchedulePayload(
-        schedule.jobType === "single"
-          ? { jobType: "single", dateTimeLocal: schedule.dateTimeLocal }
-          : {
-              jobType: "recurring",
-              recurringDays: schedule.recurringDays,
-              time: schedule.time,
-              isActive: schedule.isActive,
-            }
-      )
-    } catch (err) {
-      alert(err instanceof Error ? err.message : "Ungültige Terminierung")
-      setSaving(false)
-      return
-    }
-
-    const payload: JobUpdate = {
-      customer_name: formData.customer_name,
-      location_address: formData.location_address,
-      service_name: formData.service_name,
-      status: formData.status,
-      assigned_to: formData.assigned_to === "" ? null : formData.assigned_to,
-      notes: formData.notes,
-      ...schedulePayload,
-    }
-
-    const { error } = await supabase
-      .from("jobs")
-      .update(payload)
-      .eq("id", jobId)
-
-    if (error) {
-      console.error(error)
-      alert("Failed to update job")
-      setSaving(false)
-      return
-    }
-
-    router.push("/jobs")
-    router.refresh()
-  }
-
-  const handleDelete = async () => {
-    if (!confirm("Auftrag wirklich löschen? Diese Aktion kann nicht rückgängig gemacht werden.")) {
-      return
-    }
-
-    setDeleting(true)
-
-    const { error } = await supabase.from("jobs").delete().eq("id", jobId)
-
-    if (error) {
-      console.error(error)
-      alert("Failed to delete job")
-      setDeleting(false)
-      return
-    }
-
-    router.push("/jobs")
-    router.refresh()
-  }
-
   if (loading) {
-    return <div className="p-8 text-center">Auftrag wird geladen…</div>
+    return <div className="p-8 text-center text-muted-foreground">Auftrag wird geladen…</div>
   }
+
+  if (!job) {
+    return (
+      <EmptyState
+        icon={Briefcase}
+        title="Auftrag nicht gefunden"
+        description="Dieser Auftrag ist nicht (mehr) verfügbar."
+        action={
+          <Link href="/jobs">
+            <Button>Zur Auftragsliste</Button>
+          </Link>
+        }
+      />
+    )
+  }
+
+  const isRecurring = job.job_type === "recurring"
+  const displayTime = getJobDisplayTime(job)
+  const terminText = isRecurring
+    ? `${getRecurringDaysLabel(job)}${displayTime ? ` · ${displayTime} Uhr` : ""}`
+    : formatDateTimeDE(job.scheduled_start) ??
+      (job.date
+        ? `${job.date}${displayTime ? `, ${displayTime} Uhr` : ""}`
+        : "Kein Termin geplant")
 
   return (
-    <div className="mx-auto max-w-3xl space-y-6">
-      <div className="flex items-center justify-between">
-        <div className="flex items-center gap-4">
-          <Button variant="ghost" size="icon" onClick={() => router.back()}>
+    <div className="space-y-6">
+      {/* ── Kopfzeile ── */}
+      <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
+        <div className="flex items-start gap-3">
+          <Button
+            variant="ghost"
+            size="icon"
+            onClick={() => router.push("/jobs")}
+            className="mt-0.5"
+          >
             <ArrowLeft className="h-4 w-4" />
           </Button>
-          <PageHeader title="Auftrag bearbeiten" />
+          <div>
+            <div className="flex flex-wrap items-center gap-3">
+              <h1 className="text-3xl font-bold tracking-tight">
+                {job.customer_name}
+              </h1>
+              <Badge variant={STATUS_VARIANT[job.status] ?? "outline"}>
+                {STATUS_LABEL[job.status] ?? job.status}
+              </Badge>
+            </div>
+            <p className="mt-1 text-sm text-muted-foreground">{job.service_name}</p>
+          </div>
         </div>
 
-        <Button variant="destructive" onClick={handleDelete} disabled={deleting}>
-          <Trash2 className="mr-2 h-4 w-4" />
-          {deleting ? "Wird gelöscht…" : "Auftrag löschen"}
-        </Button>
+        <Link href={`/jobs/${jobId}/edit`}>
+          <Button variant="outline">
+            <Pencil className="mr-2 h-4 w-4" />
+            Bearbeiten
+          </Button>
+        </Link>
       </div>
 
-      <Card>
-        <form onSubmit={handleSubmit}>
-          <CardContent className="space-y-4 pt-6">
-            <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
-              <div className="space-y-2">
-                <label className="text-sm font-medium">Kundenname</label>
-                <Input
-                  name="customer_name"
-                  required
-                  value={formData.customer_name}
-                  onChange={handleChange}
+      {/* ── Details + Timeline ── */}
+      <div className="grid grid-cols-1 gap-6 lg:grid-cols-3">
+        {/* Details */}
+        <Card className="lg:col-span-2">
+          <CardHeader className="border-b px-6 py-4">
+            <CardTitle className="text-sm font-semibold">Auftragsdetails</CardTitle>
+          </CardHeader>
+          <CardContent className="px-6 py-2">
+            <div className="divide-y">
+              <JobDetailRow icon={Briefcase} label="Leistung" value={job.service_name} />
+              <JobDetailRow
+                icon={MapPin}
+                label="Einsatzort"
+                value={job.location_address || "—"}
+              />
+              <JobDetailRow icon={User} label="Mitarbeiter" value={employeeName(job)} />
+              <JobDetailRow
+                icon={isRecurring ? Repeat : Calendar}
+                label="Auftragstyp"
+                value={isRecurring ? "Wiederkehrend" : "Einmalig"}
+              />
+              <JobDetailRow
+                icon={Clock}
+                label={isRecurring ? "Wochentage & Uhrzeit" : "Termin"}
+                value={terminText}
+              />
+              {isRecurring && (
+                <JobDetailRow
+                  icon={job.is_active ? CheckCircle2 : PauseCircle}
+                  label="Status der Regel"
+                  value={job.is_active ? "Aktiv" : "Inaktiv"}
                 />
-              </div>
-
-              <div className="space-y-2">
-                <label className="text-sm font-medium">Leistung</label>
-                <Input
-                  name="service_name"
-                  required
-                  value={formData.service_name}
-                  onChange={handleChange}
-                />
-              </div>
-
-              <div className="space-y-2 md:col-span-2">
-                <label className="text-sm font-medium">Einsatzort</label>
-                <Input
-                  name="location_address"
-                  required
-                  value={formData.location_address}
-                  onChange={handleChange}
-                />
-              </div>
-
-              {/* ── Terminierung (single / recurring) ── */}
-              <div className="md:col-span-2">
-                <JobScheduleFields
-                  value={schedule}
-                  onChange={patchSchedule}
-                  errors={scheduleErrors}
-                  disabled={saving}
-                />
-              </div>
-
-              <div className="space-y-2">
-                <label className="text-sm font-medium">Status</label>
-                <Select name="status" value={formData.status} onChange={handleChange}>
-                  <option value="open">Offen</option>
-                  <option value="in_progress">In Arbeit</option>
-                  <option value="completed">Erledigt</option>
-                </Select>
-              </div>
-
-              <div className="space-y-2 md:col-span-2">
-                <label className="text-sm font-medium">Mitarbeiter zuweisen</label>
-                <Select name="assigned_to" value={formData.assigned_to} onChange={handleChange}>
-                  <option value="">Nicht zugewiesen</option>
-                  {employees.map((emp) => (
-                    <option key={emp.id} value={emp.id}>
-                      {emp.full_name}
-                    </option>
-                  ))}
-                </Select>
-              </div>
-
-              <div className="space-y-2 md:col-span-2">
-                <label className="text-sm font-medium">Notizen</label>
-                <textarea
-                  name="notes"
-                  className="min-h-[100px] w-full rounded-md border border-input bg-transparent px-3 py-2 text-sm shadow-sm ring-offset-background placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-primary disabled:cursor-not-allowed disabled:opacity-50"
-                  value={formData.notes}
-                  onChange={handleChange}
-                />
-              </div>
+              )}
             </div>
           </CardContent>
+        </Card>
 
-          <CardFooter className="flex justify-end gap-2 border-t p-6">
-            <Button variant="outline" type="button" onClick={() => router.back()}>
-              Abbrechen
-            </Button>
-            <Button type="submit" disabled={saving}>
-              {saving ? "Wird gespeichert…" : "Änderungen speichern"}
-            </Button>
-          </CardFooter>
-        </form>
+        {/* Timeline */}
+        <Card>
+          <CardHeader className="flex flex-row items-center gap-2 border-b px-6 py-4">
+            <History className="h-4 w-4 text-muted-foreground" />
+            <CardTitle className="text-sm font-semibold">Verlauf</CardTitle>
+          </CardHeader>
+          <CardContent className="px-6 py-5">
+            <JobTimeline
+              createdAt={job.created_at}
+              startedAt={job.started_at}
+              completedAt={job.completed_at}
+            />
+          </CardContent>
+        </Card>
+      </div>
+
+      {/* ── Notizen ── */}
+      {job.notes && (
+        <Card>
+          <CardHeader className="flex flex-row items-center gap-2 border-b px-6 py-4">
+            <FileText className="h-4 w-4 text-muted-foreground" />
+            <CardTitle className="text-sm font-semibold">Notizen</CardTitle>
+          </CardHeader>
+          <CardContent className="px-6 py-5">
+            <p className="whitespace-pre-wrap break-words text-sm text-foreground">
+              {job.notes}
+            </p>
+          </CardContent>
+        </Card>
+      )}
+
+      {/* ── Kommentare ── */}
+      <Card>
+        <CardHeader className="flex flex-row items-center gap-2 border-b px-6 py-4">
+          <MessageSquare className="h-4 w-4 text-muted-foreground" />
+          <CardTitle className="text-sm font-semibold">Kommentare</CardTitle>
+        </CardHeader>
+        <CardContent className="px-6 py-5">
+          <JobComments jobId={jobId} />
+        </CardContent>
       </Card>
     </div>
   )
