@@ -4,7 +4,7 @@ import { useEffect, useState } from "react"
 import { createClient } from "@/lib/supabase/client"
 import { SectionCard } from "@/components/dashboard/SectionCard"
 import { Badge } from "@/components/ui/badge"
-import { Building2, User, Users } from "lucide-react"
+import { Building2, User } from "lucide-react"
 
 function InfoLine({
   label,
@@ -35,7 +35,8 @@ function formatDate(iso: string | null) {
 }
 
 export default function SettingsPage() {
-  const supabase = createClient()
+  // Client einmalig halten → stabile Referenz für die Effect-Dependencies.
+  const [supabase] = useState(() => createClient())
 
   const [loading, setLoading] = useState(true)
   const [fullName, setFullName] = useState<string | null>(null)
@@ -94,7 +95,7 @@ export default function SettingsPage() {
     return () => {
       mounted = false
     }
-  }, [])
+  }, [supabase])
 
   const roleLabel = role === "admin" ? "Administrator" : (role ?? "—")
 
@@ -113,12 +114,13 @@ export default function SettingsPage() {
       {loading ? (
         <p className="text-sm text-muted-foreground">Laden…</p>
       ) : (
-        <div className="grid grid-cols-1 gap-5 lg:grid-cols-2">
-          {/* Firmenprofil */}
+        <div className="grid grid-cols-1 items-start gap-5 lg:grid-cols-2">
+          {/* Firmenprofil (inkl. Team) */}
           <SectionCard icon={Building2} title="Firmenprofil">
             <div className="divide-y divide-gray-100">
               <InfoLine label="Firmenname" value={companyName ?? "—"} />
               <InfoLine label="Mitglied seit" value={formatDate(companyCreatedAt)} />
+              <InfoLine label="Mitarbeiter im Team" value={employeeCount} />
             </div>
           </SectionCard>
 
@@ -135,13 +137,6 @@ export default function SettingsPage() {
                   </Badge>
                 }
               />
-            </div>
-          </SectionCard>
-
-          {/* Team */}
-          <SectionCard icon={Users} title="Team">
-            <div className="divide-y divide-gray-100">
-              <InfoLine label="Mitarbeiter im Team" value={employeeCount} />
             </div>
           </SectionCard>
         </div>
