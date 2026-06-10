@@ -13,14 +13,9 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import { Badge } from "@/components/ui/badge";
-import {
-  Card,
-  CardContent,
-  CardFooter,
-  CardHeader,
-  CardTitle,
-} from "@/components/ui/card";
-import { Users, Plus, X, Activity } from "lucide-react";
+import { SectionCard } from "@/components/dashboard/SectionCard";
+import { StatCard } from "@/components/dashboard/StatCard";
+import { Users, Plus, X, Activity, Inbox } from "lucide-react";
 import { Database } from "@/lib/supabase/database.types";
 
 type Profile = Database["public"]["Tables"]["profiles"]["Row"];
@@ -42,13 +37,16 @@ function generatePassword(): string {
 }
 
 export default function EmployeesPage() {
-  const supabase = createClient();
+  // Client einmalig halten → stabile Referenz für die Effect-Dependencies.
+  const [supabase] = useState(() => createClient());
 
   const [employees, setEmployees] = useState<Profile[]>([]);
   const [statsMap, setStatsMap] = useState<Map<string, EmployeeStats>>(
     new Map(),
   );
   const [loading, setLoading] = useState(true);
+  // Manueller Refetch-Trigger (z. B. nach dem Anlegen) ohne setState im Effect.
+  const [reloadKey, setReloadKey] = useState(0);
 
   // Form state
   const [showForm, setShowForm] = useState(false);
@@ -59,45 +57,55 @@ export default function EmployeesPage() {
   const [formError, setFormError] = useState<string | null>(null);
   const [formSuccess, setFormSuccess] = useState<string | null>(null);
 
-  const fetchData = async () => {
-    setLoading(true);
-
-    const [{ data: empData }, { data: jobData }] = await Promise.all([
-      supabase
-        .from("profiles")
-        .select("*")
-        .eq("role", "employee")
-        .order("full_name", { ascending: true }),
-      supabase.from("jobs").select("assigned_to, status"),
-    ]);
-
-    setEmployees((empData as Profile[]) ?? []);
-
-    const map = new Map<string, EmployeeStats>();
-    if (jobData) {
-      (jobData as Pick<Job, "assigned_to" | "status">[]).forEach((job) => {
-        if (!job.assigned_to) return;
-        if (!map.has(job.assigned_to)) {
-          map.set(job.assigned_to, {
-            total: 0,
-            open: 0,
-            in_progress: 0,
-            completed: 0,
-          });
-        }
-        const s = map.get(job.assigned_to)!;
-        s.total += 1;
-        (s as any)[job.status] += 1;
-      });
-    }
-    setStatsMap(map);
-
-    setLoading(false);
-  };
-
+  // Daten laden: Fetch-Funktion bewusst im Effect definiert (setState erfolgt
+  // erst nach await) — vermeidet die set-state-in-effect-Regel. Refetch über
+  // reloadKey, supabase ist stabil → keine fehlenden Dependencies.
   useEffect(() => {
-    fetchData();
-  }, []);
+    let mounted = true;
+
+    const load = async () => {
+      const [{ data: empData }, { data: jobData }] = await Promise.all([
+        supabase
+          .from("profiles")
+          .select("*")
+          .eq("role", "employee")
+          .order("full_name", { ascending: true }),
+        supabase.from("jobs").select("assigned_to, status"),
+      ]);
+
+      if (!mounted) return;
+
+      setEmployees((empData as Profile[]) ?? []);
+
+      const map = new Map<string, EmployeeStats>();
+      if (jobData) {
+        (jobData as Pick<Job, "assigned_to" | "status">[]).forEach((job) => {
+          if (!job.assigned_to) return;
+          if (!map.has(job.assigned_to)) {
+            map.set(job.assigned_to, {
+              total: 0,
+              open: 0,
+              in_progress: 0,
+              completed: 0,
+            });
+          }
+          const s = map.get(job.assigned_to)!;
+          s.total += 1;
+          if (job.status === "open") s.open += 1;
+          else if (job.status === "in_progress") s.in_progress += 1;
+          else if (job.status === "completed") s.completed += 1;
+        });
+      }
+      setStatsMap(map);
+
+      setLoading(false);
+    };
+
+    void load();
+    return () => {
+      mounted = false;
+    };
+  }, [supabase, reloadKey]);
 
   const openForm = () => {
     setFullName("");
@@ -154,7 +162,7 @@ export default function EmployeesPage() {
 
     setFormSuccess(`${result.full_name} wurde erfolgreich hinzugefügt.`);
     setFormBusy(false);
-    await fetchData();
+    setReloadKey((k) => k + 1);
 
     // Auto-close form after a short delay so the admin sees the success message
     setTimeout(() => {
@@ -173,12 +181,14 @@ export default function EmployeesPage() {
   );
 
   return (
-    <div className="space-y-6">
+    <div className="space-y-5">
 
       {/* ── Page header ── */}
       <div className="flex flex-col items-start justify-between gap-3 sm:flex-row sm:items-center">
         <div>
-          <h1 className="text-3xl font-bold tracking-tight">Mitarbeiter</h1>
+          <h1 className="text-2xl font-bold tracking-tight text-foreground sm:text-3xl">
+            Mitarbeiter
+          </h1>
           <p className="mt-1 text-sm text-muted-foreground">
             Team verwalten und Auftragszuweisungen verfolgen.
           </p>
@@ -190,71 +200,36 @@ export default function EmployeesPage() {
       </div>
 
       {/* ── Team summary cards ── */}
-      <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
-        {/* Total Employees */}
-        <Card>
-          <CardHeader className="flex flex-row items-center justify-between p-4 pb-2">
-            <CardTitle className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
-              Mitarbeiter gesamt
-            </CardTitle>
-            <div className="flex h-7 w-7 items-center justify-center rounded-md bg-secondary">
-              <Users className="h-3.5 w-3.5 text-muted-foreground" />
-            </div>
-          </CardHeader>
-          <CardContent className="px-4 pb-4 pt-0">
-            <p className="text-3xl font-bold">
-              {loading ? "—" : employees.length}
-            </p>
-            <p className="mt-0.5 text-xs text-muted-foreground">Teammitglieder</p>
-          </CardContent>
-        </Card>
-
-        {/* Active Now */}
-        <Card>
-          <CardHeader className="flex flex-row items-center justify-between p-4 pb-2">
-            <CardTitle className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
-              Gerade aktiv
-            </CardTitle>
-            <div className="flex h-7 w-7 items-center justify-center rounded-md bg-blue-50">
-              <Activity className="h-3.5 w-3.5 text-blue-600" />
-            </div>
-          </CardHeader>
-          <CardContent className="px-4 pb-4 pt-0">
-            <p className="text-3xl font-bold text-blue-600">
-              {loading ? "—" : activeNow}
-            </p>
-            <p className="mt-0.5 text-xs text-muted-foreground">
-              Aufträge in Arbeit
-            </p>
-          </CardContent>
-        </Card>
-
-        {/* Open Assignments */}
-        <Card>
-          <CardHeader className="flex flex-row items-center justify-between p-4 pb-2">
-            <CardTitle className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
-              Offene Zuweisungen
-            </CardTitle>
-            <div className="flex h-7 w-7 items-center justify-center rounded-md bg-amber-50">
-              <Users className="h-3.5 w-3.5 text-amber-600" />
-            </div>
-          </CardHeader>
-          <CardContent className="px-4 pb-4 pt-0">
-            <p className="text-3xl font-bold text-amber-600">
-              {loading ? "—" : openAssignments}
-            </p>
-            <p className="mt-0.5 text-xs text-muted-foreground">
-              Offene zugewiesene Aufträge
-            </p>
-          </CardContent>
-        </Card>
+      <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
+        <StatCard
+          icon={Users}
+          label="Mitarbeiter gesamt"
+          value={loading ? "—" : employees.length}
+          hint="Teammitglieder"
+          tone="primary"
+        />
+        <StatCard
+          icon={Activity}
+          label="Gerade aktiv"
+          value={loading ? "—" : activeNow}
+          hint="Aufträge in Arbeit"
+          tone="blue"
+        />
+        <StatCard
+          icon={Inbox}
+          label="Offene Zuweisungen"
+          value={loading ? "—" : openAssignments}
+          hint="Offene zugewiesene Aufträge"
+          tone="amber"
+        />
       </div>
 
       {/* ── Add Employee Form ── */}
       {showForm && (
-        <Card>
-          <CardHeader className="flex flex-row items-center justify-between border-b pb-4">
-            <CardTitle className="text-sm font-semibold">Neuen Mitarbeiter hinzufügen</CardTitle>
+        <SectionCard
+          icon={Plus}
+          title="Neuen Mitarbeiter hinzufügen"
+          action={
             <Button
               variant="ghost"
               size="icon"
@@ -263,10 +238,11 @@ export default function EmployeesPage() {
             >
               <X className="h-4 w-4" />
             </Button>
-          </CardHeader>
-
+          }
+          noBodyPadding
+        >
           <form onSubmit={handleCreateEmployee}>
-            <CardContent className="space-y-4 pt-4">
+            <div className="space-y-4 p-5">
               {formError && (
                 <div className="rounded-md bg-destructive/10 p-3 text-sm font-medium text-destructive">
                   {formError}
@@ -339,9 +315,9 @@ export default function EmployeesPage() {
                   </p>
                 </div>
               </div>
-            </CardContent>
+            </div>
 
-            <CardFooter className="flex justify-end gap-2 border-t pt-4">
+            <div className="flex justify-end gap-2 border-t border-gray-100 px-5 py-4">
               <Button
                 type="button"
                 variant="outline"
@@ -353,36 +329,36 @@ export default function EmployeesPage() {
               <Button type="submit" disabled={formBusy}>
                 {formBusy ? "Wird erstellt…" : "Mitarbeiter hinzufügen"}
               </Button>
-            </CardFooter>
+            </div>
           </form>
-        </Card>
+        </SectionCard>
       )}
 
       {/* ── Employee Table ── */}
-      <Card className="overflow-hidden">
-        <div className="flex items-center justify-between border-b px-5 py-3.5">
-          <p className="text-sm font-semibold">Teammitglieder</p>
-          {!loading && (
-            <p className="text-xs text-muted-foreground">
-              {employees.length}{" "}
-              {employees.length === 1 ? "Mitarbeiter" : "Mitarbeiter"}
-            </p>
-          )}
-        </div>
+      <SectionCard
+        icon={Users}
+        title="Teammitglieder"
+        subtitle={
+          loading
+            ? "Laden…"
+            : `${employees.length} Mitarbeiter`
+        }
+        noBodyPadding
+      >
         <Table>
           <TableHeader>
-            <TableRow className="bg-muted/40 hover:bg-muted/40">
-              <TableHead className="pl-5 font-semibold text-foreground">Name</TableHead>
-              <TableHead className="hidden font-semibold text-foreground sm:table-cell">Rolle</TableHead>
-              <TableHead className="text-center font-semibold text-foreground">Offen</TableHead>
-              <TableHead className="text-center font-semibold text-foreground">In Arbeit</TableHead>
-              <TableHead className="text-center font-semibold text-foreground">Erledigt</TableHead>
-              <TableHead className="pr-5 text-center font-semibold text-foreground">Gesamt</TableHead>
+            <TableRow className="border-gray-100 hover:bg-transparent">
+              <TableHead className="pl-5 text-xs font-medium uppercase tracking-wide text-muted-foreground">Name</TableHead>
+              <TableHead className="hidden text-xs font-medium uppercase tracking-wide text-muted-foreground sm:table-cell">Rolle</TableHead>
+              <TableHead className="text-center text-xs font-medium uppercase tracking-wide text-muted-foreground">Offen</TableHead>
+              <TableHead className="text-center text-xs font-medium uppercase tracking-wide text-muted-foreground">In Arbeit</TableHead>
+              <TableHead className="text-center text-xs font-medium uppercase tracking-wide text-muted-foreground">Erledigt</TableHead>
+              <TableHead className="pr-5 text-center text-xs font-medium uppercase tracking-wide text-muted-foreground">Gesamt</TableHead>
             </TableRow>
           </TableHeader>
           <TableBody>
             {loading ? (
-              <TableRow>
+              <TableRow className="border-gray-100 hover:bg-transparent">
                 <TableCell
                   colSpan={6}
                   className="h-32 text-center text-sm text-muted-foreground"
@@ -391,10 +367,10 @@ export default function EmployeesPage() {
                 </TableCell>
               </TableRow>
             ) : employees.length === 0 ? (
-              <TableRow>
+              <TableRow className="border-b-0 hover:bg-transparent">
                 <TableCell colSpan={6} className="border-b-0 p-0">
                   <div className="flex flex-col items-center justify-center gap-3 py-16 text-center">
-                    <div className="flex h-10 w-10 items-center justify-center rounded-full bg-muted">
+                    <div className="flex h-10 w-10 items-center justify-center rounded-full bg-secondary">
                       <Users className="h-5 w-5 text-muted-foreground" />
                     </div>
                     <div>
@@ -427,7 +403,7 @@ export default function EmployeesPage() {
                 return (
                   <TableRow
                     key={emp.id}
-                    className="transition-colors hover:bg-muted/40"
+                    className="border-gray-100 transition-colors hover:bg-gray-50/70"
                   >
                     {/* Name + Active Now indicator */}
                     <TableCell className="py-3.5 pl-5">
@@ -453,9 +429,9 @@ export default function EmployeesPage() {
                       </div>
                     </TableCell>
 
-                    {/* Email — not in profiles schema; show role instead */}
-                    <TableCell className="hidden py-3.5 text-sm text-muted-foreground sm:table-cell capitalize">
-                      {emp.role}
+                    {/* Email — not in profiles schema; show role as badge instead */}
+                    <TableCell className="hidden py-3.5 sm:table-cell">
+                      <Badge variant="secondary">Mitarbeiter</Badge>
                     </TableCell>
 
                     {/* Open */}
@@ -499,7 +475,7 @@ export default function EmployeesPage() {
             )}
           </TableBody>
         </Table>
-      </Card>
+      </SectionCard>
 
     </div>
   );
