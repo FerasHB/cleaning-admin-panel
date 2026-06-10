@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import Link from "next/link";
 import { createClient } from "@/lib/supabase/client";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -15,7 +16,7 @@ import {
 import { Badge } from "@/components/ui/badge";
 import { SectionCard } from "@/components/dashboard/SectionCard";
 import { StatCard } from "@/components/dashboard/StatCard";
-import { Users, Plus, X, Activity, Inbox } from "lucide-react";
+import { Users, Plus, X, Activity, Inbox, ChevronRight } from "lucide-react";
 import { Database } from "@/lib/supabase/database.types";
 
 type Profile = Database["public"]["Tables"]["profiles"]["Row"];
@@ -353,14 +354,15 @@ export default function EmployeesPage() {
               <TableHead className="text-center text-xs font-medium uppercase tracking-wide text-muted-foreground">Offen</TableHead>
               <TableHead className="text-center text-xs font-medium uppercase tracking-wide text-muted-foreground">In Arbeit</TableHead>
               <TableHead className="text-center text-xs font-medium uppercase tracking-wide text-muted-foreground">Erledigt</TableHead>
-              <TableHead className="pr-5 text-center text-xs font-medium uppercase tracking-wide text-muted-foreground">Gesamt</TableHead>
+              <TableHead className="text-center text-xs font-medium uppercase tracking-wide text-muted-foreground">Gesamt</TableHead>
+              <TableHead className="w-[44px] pr-5" />
             </TableRow>
           </TableHeader>
           <TableBody>
             {loading ? (
               <TableRow className="border-gray-100 hover:bg-transparent">
                 <TableCell
-                  colSpan={6}
+                  colSpan={7}
                   className="h-32 text-center text-sm text-muted-foreground"
                 >
                   Mitarbeiter werden geladen…
@@ -368,7 +370,7 @@ export default function EmployeesPage() {
               </TableRow>
             ) : employees.length === 0 ? (
               <TableRow className="border-b-0 hover:bg-transparent">
-                <TableCell colSpan={6} className="border-b-0 p-0">
+                <TableCell colSpan={7} className="border-b-0 p-0">
                   <div className="flex flex-col items-center justify-center gap-3 py-16 text-center">
                     <div className="flex h-10 w-10 items-center justify-center rounded-full bg-secondary">
                       <Users className="h-5 w-5 text-muted-foreground" />
@@ -403,11 +405,11 @@ export default function EmployeesPage() {
                 return (
                   <TableRow
                     key={emp.id}
-                    className="border-gray-100 transition-colors hover:bg-gray-50/70"
+                    className="group cursor-pointer border-gray-100 transition-colors hover:bg-gray-50/70"
                   >
                     {/* Name + Active Now indicator */}
                     <TableCell className="py-3.5 pl-5">
-                      <div className="flex items-center gap-3">
+                      <Link href={`/employees/${emp.id}`} className="flex items-center gap-3">
                         <div className="relative shrink-0">
                           <div className="flex h-8 w-8 items-center justify-center rounded-full bg-primary/10 text-xs font-semibold text-primary">
                             {initials}
@@ -426,7 +428,7 @@ export default function EmployeesPage() {
                             </p>
                           )}
                         </div>
-                      </div>
+                      </Link>
                     </TableCell>
 
                     {/* Email — not in profiles schema; show role as badge instead */}
@@ -462,12 +464,19 @@ export default function EmployeesPage() {
                     </TableCell>
 
                     {/* Total */}
-                    <TableCell className="py-3.5 pr-5 text-center">
+                    <TableCell className="py-3.5 text-center">
                       <span className="text-sm font-semibold">
                         {stats.total > 0 ? stats.total : (
                           <span className="font-normal text-muted-foreground/50">—</span>
                         )}
                       </span>
+                    </TableCell>
+
+                    {/* Chevron */}
+                    <TableCell className="py-3.5 pr-5 text-right">
+                      <Link href={`/employees/${emp.id}`} className="inline-flex">
+                        <ChevronRight className="h-4 w-4 text-muted-foreground/40 transition-colors group-hover:text-muted-foreground" />
+                      </Link>
                     </TableCell>
                   </TableRow>
                 );
