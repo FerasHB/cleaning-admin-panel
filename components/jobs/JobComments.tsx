@@ -59,22 +59,22 @@ export function JobComments({ jobId }: { jobId: string }) {
           Noch keine Kommentare zu diesem Auftrag.
         </p>
       ) : (
-        <ul className="space-y-4">
+        <ul className="divide-y divide-gray-100">
           {comments.map((c) => (
-            <li key={c.id} className="flex gap-3">
+            <li key={c.id} className="flex gap-3 py-3 first:pt-0">
               <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-primary/10 text-xs font-semibold text-primary">
                 {initials(c.authorName)}
               </div>
               <div className="min-w-0 flex-1">
                 <div className="flex flex-wrap items-baseline gap-x-2">
-                  <span className="text-sm font-medium text-foreground">
+                  <span className="text-sm font-semibold text-foreground">
                     {c.authorName ?? "Unbekannt"}
                   </span>
-                  <span className="text-xs text-muted-foreground">
+                  <span className="text-xs tabular-nums text-muted-foreground">
                     {formatDateTimeDE(c.createdAt)}
                   </span>
                 </div>
-                <p className="whitespace-pre-wrap break-words text-sm text-foreground">
+                <p className="mt-0.5 whitespace-pre-wrap break-words text-sm text-foreground">
                   {c.message}
                 </p>
               </div>
@@ -84,7 +84,7 @@ export function JobComments({ jobId }: { jobId: string }) {
       )}
 
       {/* ── Eingabe ── */}
-      <form onSubmit={handleSubmit} className="space-y-2 border-t pt-4">
+      <form onSubmit={handleSubmit} className="space-y-2 border-t border-gray-100 pt-4">
         {submitError && (
           <p className="text-xs font-medium text-destructive">{submitError}</p>
         )}
@@ -94,7 +94,7 @@ export function JobComments({ jobId }: { jobId: string }) {
           disabled={sending}
           rows={3}
           placeholder="Kommentar schreiben…"
-          className="w-full rounded-md border border-input bg-transparent px-3 py-2 text-sm shadow-sm placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-primary disabled:cursor-not-allowed disabled:opacity-50"
+          className="w-full rounded-lg border border-gray-200 bg-transparent px-3 py-2 text-sm shadow-sm placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/30 focus-visible:border-primary/40 disabled:cursor-not-allowed disabled:opacity-50"
         />
         <div className="flex justify-end">
           <Button type="submit" size="sm" disabled={sending || !message.trim()}>

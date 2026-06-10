@@ -4,10 +4,10 @@ import { useEffect, useState } from "react"
 import Link from "next/link"
 import { useParams, useRouter } from "next/navigation"
 import { createClient } from "@/lib/supabase/client"
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
 import { EmptyState } from "@/components/ui/empty-state"
+import { SectionCard } from "@/components/dashboard/SectionCard"
 import {
   ArrowLeft,
   Briefcase,
@@ -28,6 +28,7 @@ import { JobTimeline } from "@/components/jobs/JobTimeline"
 import { JobComments } from "@/components/jobs/JobComments"
 import { getJobDisplayTime, getRecurringDaysLabel } from "@/lib/jobs/jobSchedule"
 import { formatDateTimeDE } from "@/lib/date"
+import { cn } from "@/lib/utils"
 import type { Database } from "@/lib/supabase/database.types"
 
 type JobRow = Database["public"]["Tables"]["jobs"]["Row"]
@@ -50,10 +51,29 @@ const STATUS_VARIANT: Record<string, "warning" | "info" | "success"> = {
   completed: "success",
 }
 
+const STATUS_DOT: Record<string, string> = {
+  open: "bg-amber-400",
+  in_progress: "bg-blue-500",
+  completed: "bg-emerald-500",
+}
+
 function employeeName(job: JobDetail): string {
   const a = job.assignee
   const name = Array.isArray(a) ? a[0]?.full_name : a?.full_name
   return name ?? "Nicht zugewiesen"
+}
+
+function initials(name: string | null): string {
+  if (!name) return "?"
+  return (
+    name
+      .trim()
+      .split(/\s+/)
+      .map((n) => n[0])
+      .slice(0, 2)
+      .join("")
+      .toUpperCase() || "?"
+  )
 }
 
 export default function JobDetailPage() {
@@ -119,32 +139,63 @@ export default function JobDetailPage() {
         : "Kein Termin geplant")
 
   return (
-    <div className="space-y-6">
+    <div className="space-y-5">
+      {/* ── Zurück-Link ── */}
+      <button
+        type="button"
+        onClick={() => router.push("/jobs")}
+        className="inline-flex items-center gap-1.5 text-sm font-medium text-muted-foreground transition-colors hover:text-foreground"
+      >
+        <ArrowLeft className="h-4 w-4" />
+        Aufträge
+      </button>
+
       {/* ── Kopfzeile ── */}
       <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
-        <div className="flex items-start gap-3">
-          <Button
-            variant="ghost"
-            size="icon"
-            onClick={() => router.push("/jobs")}
-            className="mt-0.5"
-          >
-            <ArrowLeft className="h-4 w-4" />
-          </Button>
-          <div>
-            <div className="flex flex-wrap items-center gap-3">
-              <h1 className="text-3xl font-bold tracking-tight">
+        <div className="flex items-start gap-3.5">
+          <span className="flex h-12 w-12 shrink-0 items-center justify-center rounded-xl bg-primary/10 text-base font-semibold text-primary">
+            {initials(job.customer_name)}
+          </span>
+          <div className="min-w-0">
+            <div className="flex flex-wrap items-center gap-2.5">
+              <h1 className="text-2xl font-bold tracking-tight text-foreground sm:text-3xl">
                 {job.customer_name}
               </h1>
-              <Badge variant={STATUS_VARIANT[job.status] ?? "outline"}>
+              <Badge variant={STATUS_VARIANT[job.status] ?? "outline"} className="gap-1.5">
+                <span
+                  className={cn(
+                    "h-1.5 w-1.5 rounded-full",
+                    STATUS_DOT[job.status] ?? "bg-muted-foreground",
+                  )}
+                />
                 {STATUS_LABEL[job.status] ?? job.status}
               </Badge>
             </div>
-            <p className="mt-1 text-sm text-muted-foreground">{job.service_name}</p>
+            {/* Meta-Zeile: Leistung · Termin · Ort */}
+            <div className="mt-1.5 flex flex-wrap items-center gap-x-3 gap-y-1 text-sm text-muted-foreground">
+              <span className="flex items-center gap-1.5">
+                <Briefcase className="h-3.5 w-3.5 shrink-0" />
+                {job.service_name}
+              </span>
+              <span className="flex items-center gap-1.5">
+                {isRecurring ? (
+                  <Repeat className="h-3.5 w-3.5 shrink-0" />
+                ) : (
+                  <Calendar className="h-3.5 w-3.5 shrink-0" />
+                )}
+                {terminText}
+              </span>
+              {job.location_address && (
+                <span className="flex items-center gap-1.5">
+                  <MapPin className="h-3.5 w-3.5 shrink-0" />
+                  <span className="max-w-[220px] truncate">{job.location_address}</span>
+                </span>
+              )}
+            </div>
           </div>
         </div>
 
-        <Link href={`/jobs/${jobId}/edit`}>
+        <Link href={`/jobs/${jobId}/edit`} className="shrink-0">
           <Button variant="outline">
             <Pencil className="mr-2 h-4 w-4" />
             Bearbeiten
@@ -153,83 +204,65 @@ export default function JobDetailPage() {
       </div>
 
       {/* ── Details + Timeline ── */}
-      <div className="grid grid-cols-1 gap-6 lg:grid-cols-3">
+      <div className="grid grid-cols-1 items-start gap-5 lg:grid-cols-3">
         {/* Details */}
-        <Card className="lg:col-span-2">
-          <CardHeader className="border-b px-6 py-4">
-            <CardTitle className="text-sm font-semibold">Auftragsdetails</CardTitle>
-          </CardHeader>
-          <CardContent className="px-6 py-2">
-            <div className="divide-y">
-              <JobDetailRow icon={Briefcase} label="Leistung" value={job.service_name} />
+        <SectionCard
+          className="lg:col-span-2"
+          icon={Briefcase}
+          title="Auftragsdetails"
+          noBodyPadding
+        >
+          <div className="grid grid-cols-1 gap-x-6 px-5 sm:grid-cols-2">
+            <JobDetailRow icon={Briefcase} label="Leistung" value={job.service_name} />
+            <JobDetailRow
+              icon={MapPin}
+              label="Einsatzort"
+              value={job.location_address || "—"}
+            />
+            <JobDetailRow icon={User} label="Mitarbeiter" value={employeeName(job)} />
+            <JobDetailRow
+              icon={isRecurring ? Repeat : Calendar}
+              label="Auftragstyp"
+              value={isRecurring ? "Wiederkehrend" : "Einmalig"}
+            />
+            <JobDetailRow
+              icon={Clock}
+              label={isRecurring ? "Wochentage & Uhrzeit" : "Termin"}
+              value={terminText}
+            />
+            {isRecurring && (
               <JobDetailRow
-                icon={MapPin}
-                label="Einsatzort"
-                value={job.location_address || "—"}
+                icon={job.is_active ? CheckCircle2 : PauseCircle}
+                label="Status der Regel"
+                value={job.is_active ? "Aktiv" : "Inaktiv"}
               />
-              <JobDetailRow icon={User} label="Mitarbeiter" value={employeeName(job)} />
-              <JobDetailRow
-                icon={isRecurring ? Repeat : Calendar}
-                label="Auftragstyp"
-                value={isRecurring ? "Wiederkehrend" : "Einmalig"}
-              />
-              <JobDetailRow
-                icon={Clock}
-                label={isRecurring ? "Wochentage & Uhrzeit" : "Termin"}
-                value={terminText}
-              />
-              {isRecurring && (
-                <JobDetailRow
-                  icon={job.is_active ? CheckCircle2 : PauseCircle}
-                  label="Status der Regel"
-                  value={job.is_active ? "Aktiv" : "Inaktiv"}
-                />
-              )}
-            </div>
-          </CardContent>
-        </Card>
+            )}
+          </div>
+        </SectionCard>
 
         {/* Timeline */}
-        <Card>
-          <CardHeader className="flex flex-row items-center gap-2 border-b px-6 py-4">
-            <History className="h-4 w-4 text-muted-foreground" />
-            <CardTitle className="text-sm font-semibold">Verlauf</CardTitle>
-          </CardHeader>
-          <CardContent className="px-6 py-5">
-            <JobTimeline
-              createdAt={job.created_at}
-              startedAt={job.started_at}
-              completedAt={job.completed_at}
-            />
-          </CardContent>
-        </Card>
+        <SectionCard icon={History} title="Verlauf">
+          <JobTimeline
+            createdAt={job.created_at}
+            startedAt={job.started_at}
+            completedAt={job.completed_at}
+          />
+        </SectionCard>
       </div>
 
       {/* ── Notizen ── */}
       {job.notes && (
-        <Card>
-          <CardHeader className="flex flex-row items-center gap-2 border-b px-6 py-4">
-            <FileText className="h-4 w-4 text-muted-foreground" />
-            <CardTitle className="text-sm font-semibold">Notizen</CardTitle>
-          </CardHeader>
-          <CardContent className="px-6 py-5">
-            <p className="whitespace-pre-wrap break-words text-sm text-foreground">
-              {job.notes}
-            </p>
-          </CardContent>
-        </Card>
+        <SectionCard icon={FileText} title="Notizen">
+          <p className="whitespace-pre-wrap break-words text-sm text-foreground">
+            {job.notes}
+          </p>
+        </SectionCard>
       )}
 
       {/* ── Kommentare ── */}
-      <Card>
-        <CardHeader className="flex flex-row items-center gap-2 border-b px-6 py-4">
-          <MessageSquare className="h-4 w-4 text-muted-foreground" />
-          <CardTitle className="text-sm font-semibold">Kommentare</CardTitle>
-        </CardHeader>
-        <CardContent className="px-6 py-5">
-          <JobComments jobId={jobId} />
-        </CardContent>
-      </Card>
+      <SectionCard icon={MessageSquare} title="Kommentare">
+        <JobComments jobId={jobId} />
+      </SectionCard>
     </div>
   )
 }
