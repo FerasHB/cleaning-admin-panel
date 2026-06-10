@@ -103,12 +103,12 @@ export function Sidebar({ className }: React.HTMLAttributes<HTMLDivElement>) {
   return (
     <div
       className={cn(
-        "fixed hidden h-screen w-64 flex-col border-r bg-card md:flex",
+        "fixed hidden h-screen w-64 flex-col border-r border-gray-100 bg-background md:flex",
         className,
       )}
     >
       {/* ── Workspace header ── */}
-      <div className="flex h-[60px] items-center gap-3 border-b px-4">
+      <div className="flex h-[60px] items-center gap-3 border-b border-gray-100 px-4">
         <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-primary text-sm font-bold text-primary-foreground">
           {companyInitial}
         </div>
@@ -141,8 +141,8 @@ export function Sidebar({ className }: React.HTMLAttributes<HTMLDivElement>) {
                       className={cn(
                         "flex items-center gap-3 rounded-lg px-3 py-2 text-sm transition-colors",
                         isActive
-                          ? "bg-primary/10 font-semibold text-primary"
-                          : "font-medium text-muted-foreground hover:bg-muted hover:text-foreground",
+                          ? "border border-primary/15 bg-primary/10 font-semibold text-primary shadow-sm"
+                          : "border border-transparent font-medium text-muted-foreground hover:bg-gray-100 hover:text-foreground",
                       )}
                     >
                       <Icon
@@ -162,7 +162,7 @@ export function Sidebar({ className }: React.HTMLAttributes<HTMLDivElement>) {
       </div>
 
       {/* ── Account-Block ── */}
-      <div className="border-t p-3">
+      <div className="border-t border-gray-100 p-3">
         <div className="flex items-center gap-3 rounded-lg px-2 py-2">
           <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-primary/10 text-xs font-semibold text-primary">
             {initials(accountLabel)}
