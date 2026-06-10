@@ -8,6 +8,8 @@ import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
 import { StatCard } from "@/components/dashboard/StatCard"
 import { SectionCard } from "@/components/dashboard/SectionCard"
+import { ActivityList } from "@/components/dashboard/ActivityList"
+import { getRecentActivity, type ActivityItem } from "@/lib/activity/activity"
 import {
   Activity,
   ArrowRight,
@@ -72,7 +74,7 @@ function initials(name: string | null) {
 
 export default function DashboardPage() {
   const { jobs, loading: jobsLoading, counts } = useAdminJobs()
-  const recentJobs = jobs.slice(0, 6)
+  const recentJobs = jobs.slice(0, 4)
 
   // "Heute" recurring-fähig (single per Datum/scheduled_start, recurring per
   // Wochentag, nur aktive); Sortierung nach Anzeige-Uhrzeit.
@@ -82,7 +84,7 @@ export default function DashboardPage() {
       (getJobDisplayTime(a) ?? "").localeCompare(getJobDisplayTime(b) ?? ""),
     )
 
-  const supabase = createClient()
+  const [supabase] = useState(() => createClient())
   const [totalEmployees, setTotalEmployees] = useState<number>(0)
 
   useEffect(() => {
@@ -91,7 +93,36 @@ export default function DashboardPage() {
       .select("*", { count: "exact", head: true })
       .eq("role", "employee")
       .then(({ count }) => setTotalEmployees(count ?? 0))
-  }, [])
+  }, [supabase])
+
+  // Aktivitäts-Feed (echte Events: Kommentare, gestartet, abgeschlossen,
+  // erstellt) — firmenweit, RLS-scoped.
+  const [activity, setActivity] = useState<ActivityItem[]>([])
+  const [activityLoading, setActivityLoading] = useState(true)
+  const [activityError, setActivityError] = useState<string | null>(null)
+
+  useEffect(() => {
+    let mounted = true
+    const load = async () => {
+      try {
+        const data = await getRecentActivity(supabase, 3)
+        if (mounted) setActivity(data)
+      } catch (err) {
+        if (mounted)
+          setActivityError(
+            err instanceof Error
+              ? err.message
+              : "Aktivität konnte nicht geladen werden.",
+          )
+      } finally {
+        if (mounted) setActivityLoading(false)
+      }
+    }
+    load()
+    return () => {
+      mounted = false
+    }
+  }, [supabase])
 
   const total = counts.open + counts.inProgress + counts.completed
   const pct = (v: number) => (total > 0 ? Math.round((v / total) * 100) : 0)
@@ -197,11 +228,12 @@ export default function DashboardPage() {
         />
       </div>
 
-      {/* ── Hauptbereich: große Liste links, kompakte Widgets rechts ── */}
-      <div className="grid grid-cols-1 items-start gap-5 lg:grid-cols-3">
-        {/* Aktuelle Aufträge (Hauptelement) */}
+      {/* ── Hauptbereich: zwei gleichwertige Spalten ── */}
+      <div className="grid grid-cols-1 items-start gap-5 lg:grid-cols-2">
+        {/* Linke Spalte: Aktuelle Aufträge + Aktivität */}
+        <div className="space-y-5">
+        {/* Aktuelle Aufträge */}
         <SectionCard
-          className="lg:col-span-2"
           icon={Inbox}
           title="Aktuelle Aufträge"
           subtitle="Die neuesten Aufträge"
@@ -281,6 +313,21 @@ export default function DashboardPage() {
             </div>
           )}
         </SectionCard>
+
+        {/* Aktivität (echte Events) */}
+        <SectionCard
+          icon={Activity}
+          title="Aktivität"
+          subtitle="Letzte Ereignisse im Team"
+          noBodyPadding
+        >
+          <ActivityList
+            items={activity}
+            loading={activityLoading}
+            error={activityError}
+          />
+        </SectionCard>
+        </div>
 
         {/* Rechte Spalte: Status + Tagesplan + Team (kompakt) */}
         <div className="space-y-5">
