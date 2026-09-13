@@ -1,15 +1,32 @@
 import { createServerClient } from "@supabase/ssr"
 import { NextResponse, type NextRequest } from "next/server"
 import { Database } from "./database.types"
+import { classifyClientKey } from "./keyGuard"
+
+// Same fail-closed guard as lib/supabase/client.ts and server.ts: the proxy
+// runs on every request, so a misconfigured secret key here would be the
+// worst place to miss it.
+function assertSafeClientKey(key: string | undefined): asserts key is string {
+  const verdict = classifyClientKey(key)
+  if (verdict !== "public") {
+    throw new Error(
+      "Unsafe Supabase key detected in Web client configuration."
+    )
+  }
+}
 
 export async function updateSession(request: NextRequest) {
   let supabaseResponse = NextResponse.next({
     request,
   })
 
+  const url = process.env.NEXT_PUBLIC_SUPABASE_URL
+  const anonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY
+  assertSafeClientKey(anonKey)
+
   const supabase = createServerClient<Database>(
-    process.env.NEXT_PUBLIC_SUPABASE_URL!,
-    process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
+    url!,
+    anonKey,
     {
       cookies: {
         getAll() {
