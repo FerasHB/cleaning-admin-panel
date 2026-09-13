@@ -20,8 +20,8 @@ function initials(name: string | null): string {
     .toUpperCase()
 }
 
-export function JobComments({ jobId }: { jobId: string }) {
-  const { comments, loading, error, submit } = useJobComments(jobId)
+export function JobComments({ jobId, refreshToken }: { jobId: string; refreshToken?: unknown }) {
+  const { comments, loading, error, submit } = useJobComments(jobId, refreshToken)
   const [message, setMessage] = useState("")
   const [sending, setSending] = useState(false)
   const [submitError, setSubmitError] = useState<string | null>(null)
