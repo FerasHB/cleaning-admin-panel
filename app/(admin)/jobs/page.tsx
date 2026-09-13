@@ -1,7 +1,8 @@
 "use client"
 
-import { useState } from "react"
+import { useEffect, useState } from "react"
 import Link from "next/link"
+import { createClient } from "@/lib/supabase/client"
 import { useAdminJobs } from "@/hooks/use-admin-jobs"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
@@ -13,16 +14,21 @@ import { getJobDisplayTime, getRecurringDaysLabel, isJobToday } from "@/lib/jobs
 import { formatDateISO } from "@/lib/date"
 import {
   getAssigneeNames,
+  getEmployees,
+  isAssignedTo,
   isOccurrence,
   isRecurringRule,
   isStandaloneSingle,
   UNASSIGNED_LABEL,
+  type EmployeeOption,
   type JobWithAssignments,
 } from "@/lib/jobs/jobs.service"
 import { cn } from "@/lib/utils"
 
 type Job = JobWithAssignments
 type StatusFilter = "all" | "open" | "in_progress" | "completed"
+// Wie Mobiles EmployeeSelection: "all" | "unassigned" | <employeeId>.
+type EmployeeSelection = "all" | "unassigned" | string
 
 const STATUS_LABEL: Record<string, string> = {
   open:        "Offen",
@@ -85,12 +91,19 @@ function occurrenceSortKey(job: Job) {
 
 // ── Wiederverwendbare Zell-Bausteine (lokal, kein Shared-UI) ──
 
-function CustomerCell({ job }: { job: Job }) {
+// unread: wie Mobiles JobCard-Punkt — reiner Boolean, kein Zähler.
+function CustomerCell({ job, unread }: { job: Job; unread?: boolean }) {
   return (
     <TableCell className="py-4 pl-5">
       <Link href={`/jobs/${job.id}`} className="flex items-center gap-3">
-        <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-primary/10 text-xs font-semibold text-primary">
+        <span className="relative flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-primary/10 text-xs font-semibold text-primary">
           {initials(job.customer_name)}
+          {unread && (
+            <span
+              aria-label="Ungelesene Kommentare"
+              className="absolute -right-0.5 -top-0.5 h-2.5 w-2.5 rounded-full bg-destructive ring-2 ring-card"
+            />
+          )}
         </span>
         <span className="min-w-0">
           <span className="block truncate font-medium leading-tight text-foreground">
@@ -242,9 +255,30 @@ function EmptyRow({
 const TH = "text-xs font-medium uppercase tracking-wide text-muted-foreground"
 
 export default function JobsPage() {
-  const { jobs, loading, error } = useAdminJobs()
+  const { jobs, loading, error, unreadJobIds } = useAdminJobs()
   const [search, setSearch] = useState("")
   const [statusFilter, setStatusFilter] = useState<StatusFilter>("all")
+  const [employeeFilter, setEmployeeFilter] = useState<EmployeeSelection>("all")
+  const [employees, setEmployees] = useState<EmployeeOption[]>([])
+
+  useEffect(() => {
+    const supabase = createClient()
+    let mounted = true
+    getEmployees(supabase)
+      .then((data) => {
+        if (mounted) setEmployees(data)
+      })
+      .catch(() => {
+        // still — der Filter bleibt einfach leer, keine Blockade der Liste.
+      })
+    return () => {
+      mounted = false
+    }
+  }, [])
+
+  // Picker-Liste wie Mobiles AdminJobsScreen: nur aktive Mitarbeiter, auch
+  // wenn getEmployees() alle liefert.
+  const activeEmployees = employees.filter((e) => e.isActive)
 
   const matchesSearch = (job: Job) => {
     const q = search.toLowerCase()
@@ -254,6 +288,15 @@ export default function JobsPage() {
     )
   }
   const matchesStatus = (job: Job) => statusFilter === "all" || job.status === statusFilter
+  // Eine gemeinsame Funktion für alle drei Sections (Einzelaufträge, Regeln,
+  // Termine) — wie Mobile über job_assignments, nie über den Legacy-Zeiger.
+  // Bei Regeln mit mehreren Mitarbeitern reicht EIN passender Eintrag (wie
+  // Mobiles isAssignedTo/matchesRuleFilters-OR-Semantik).
+  const matchesEmployee = (job: Job) => {
+    if (employeeFilter === "all") return true
+    if (employeeFilter === "unassigned") return (job.assignments ?? []).length === 0
+    return isAssignedTo(job, employeeFilter)
+  }
 
   // Backend-Modell: drei getrennte Gruppen.
   //   Einzelaufträge: job_type='single' ohne parent_job_id
@@ -263,12 +306,12 @@ export default function JobsPage() {
   const occurrences = jobs.filter(isOccurrence)
   const rules = jobs.filter(isRecurringRule)
 
-  const filteredSingles = singles.filter((j) => matchesSearch(j) && matchesStatus(j))
+  const filteredSingles = singles.filter((j) => matchesSearch(j) && matchesStatus(j) && matchesEmployee(j))
   const filteredOccurrences = occurrences
-    .filter((j) => matchesSearch(j) && matchesStatus(j))
+    .filter((j) => matchesSearch(j) && matchesStatus(j) && matchesEmployee(j))
     .sort((a, b) => occurrenceSortKey(a).localeCompare(occurrenceSortKey(b)))
   // Regeln haben keinen Arbeitsstatus — der Statusfilter gilt nur für Aufträge/Termine.
-  const filteredRules = rules.filter(matchesSearch)
+  const filteredRules = rules.filter((j) => matchesSearch(j) && matchesEmployee(j))
 
   // Nächster anstehender Termin je Regel (aus den bereits geladenen Terminen).
   const todayKey = formatDateISO(new Date()) ?? ""
@@ -281,7 +324,8 @@ export default function JobsPage() {
     upcomingByRule.set(occ.parent_job_id, entry)
   }
 
-  const hasActiveFilters = search.trim() !== "" || statusFilter !== "all"
+  const hasActiveFilters = search.trim() !== "" || statusFilter !== "all" || employeeFilter !== "all"
+  const hasActiveRuleFilters = search.trim() !== "" || employeeFilter !== "all"
 
   // Counts für die Status-Pills — über alle AUSFÜHRBAREN Aufträge (Einzelaufträge + Termine).
   const executable = [...singles, ...occurrences]
@@ -342,7 +386,28 @@ export default function JobsPage() {
           />
         </div>
 
-        <div className="flex flex-wrap items-center gap-1.5">
+        <div className="flex flex-wrap items-center gap-3">
+          {/* Mitarbeiter-Filter: wie Mobiles EmployeeFilterControl — all /
+              unassigned / eine bestimmte ID, über job_assignments. */}
+          <label className="sr-only" htmlFor="employee-filter">
+            Nach Mitarbeiter filtern
+          </label>
+          <select
+            id="employee-filter"
+            value={employeeFilter}
+            onChange={(e) => setEmployeeFilter(e.target.value)}
+            className="h-9 rounded-md border border-input bg-transparent px-2.5 text-sm shadow-sm focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-primary"
+          >
+            <option value="all">Alle Mitarbeiter</option>
+            <option value="unassigned">Nicht zugewiesen</option>
+            {activeEmployees.map((emp) => (
+              <option key={emp.id} value={emp.id}>
+                {emp.fullName}
+              </option>
+            ))}
+          </select>
+
+          <div className="flex flex-wrap items-center gap-1.5">
           {pills.map((p) => {
             const active = statusFilter === p.key
             return (
@@ -370,6 +435,7 @@ export default function JobsPage() {
               </button>
             )
           })}
+          </div>
         </div>
       </div>
 
@@ -404,7 +470,7 @@ export default function JobsPage() {
             ) : (
               filteredSingles.map((job) => (
                 <TableRow key={job.id} className="group border-gray-100 transition-colors hover:bg-gray-50/70">
-                  <CustomerCell job={job} />
+                  <CustomerCell job={job} unread={unreadJobIds.has(job.id)} />
                   <AssigneesCell job={job} />
                   <AddressCell job={job} />
                   <DateCell job={job} />
@@ -445,7 +511,7 @@ export default function JobsPage() {
             ) : filteredRules.length === 0 ? (
               <EmptyRow
                 colSpan={6}
-                hasActiveFilters={search.trim() !== ""}
+                hasActiveFilters={hasActiveRuleFilters}
                 emptyTitle="Noch keine Daueraufträge"
                 emptyHint="Legen Sie einen wiederkehrenden Auftrag an, um zu beginnen."
               />
@@ -455,7 +521,7 @@ export default function JobsPage() {
                 const upcoming = upcomingByRule.get(job.id)
                 return (
                   <TableRow key={job.id} className="group border-gray-100 transition-colors hover:bg-gray-50/70">
-                    <CustomerCell job={job} />
+                    <CustomerCell job={job} unread={unreadJobIds.has(job.id)} />
                     <AssigneesCell job={job} />
                     <TableCell className="hidden py-4 sm:table-cell">
                       <div className="flex flex-col gap-1">
@@ -536,7 +602,7 @@ export default function JobsPage() {
             ) : (
               filteredOccurrences.map((job) => (
                 <TableRow key={job.id} className="group border-gray-100 transition-colors hover:bg-gray-50/70">
-                  <CustomerCell job={job} />
+                  <CustomerCell job={job} unread={unreadJobIds.has(job.id)} />
                   <AssigneesCell job={job} />
                   <AddressCell job={job} />
                   <DateCell job={job} />

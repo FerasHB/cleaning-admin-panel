@@ -8,6 +8,7 @@ import {
   isExecutableJob,
   type JobWithAssignments,
 } from "@/lib/jobs/jobs.service"
+import { getUnreadCommentJobIds } from "@/lib/comments/unread"
 
 export type AdminJobCounts = {
   open: number
@@ -21,6 +22,9 @@ export type UseAdminJobsResult = {
   loading: boolean
   error: string | null
   counts: AdminJobCounts
+  // Ungelesene Kommentare — wie Mobiles JobContext.refreshJobs() über den
+  // gleichen Kanal/Debounce aktualisiert, kein eigenes Abonnement.
+  unreadJobIds: Set<string>
 }
 
 // Zähler nur über AUSFÜHRBARE Arbeit (Einzelaufträge + generierte Termine).
@@ -45,6 +49,7 @@ export function useAdminJobs(): UseAdminJobsResult {
   const [jobs, setJobs] = useState<JobWithAssignments[]>([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
+  const [unreadJobIds, setUnreadJobIds] = useState<Set<string>>(new Set())
 
   useEffect(() => {
     let mounted = true
@@ -61,6 +66,14 @@ export function useAdminJobs(): UseAdminJobsResult {
         setError(err instanceof Error ? err.message : "Aufträge konnten nicht geladen werden.")
       } finally {
         if (mounted) setLoading(false)
+      }
+      // Ungelesene Kommentare separat laden (best-effort, wie Mobile) — ein
+      // Fehler hier darf die Jobliste nicht blockieren.
+      try {
+        const unread = await getUnreadCommentJobIds(supabase)
+        if (mounted) setUnreadJobIds(unread)
+      } catch {
+        // still
       }
     }
 
@@ -86,5 +99,5 @@ export function useAdminJobs(): UseAdminJobsResult {
     }
   }, [supabase])
 
-  return { jobs, loading, error, counts: deriveCounts(jobs) }
+  return { jobs, loading, error, counts: deriveCounts(jobs), unreadJobIds }
 }

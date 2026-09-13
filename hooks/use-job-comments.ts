@@ -12,7 +12,9 @@ import {
   type JobComment,
 } from "@/lib/comments/comments"
 
-export function useJobComments(jobId: string) {
+// refreshToken: optionales externes Signal (z. B. Realtime-Tick), das einen
+// Neuabruf auslöst, ohne die Submit-/Lade-Logik zu duplizieren.
+export function useJobComments(jobId: string, refreshToken?: unknown) {
   const supabase = useRef(createClient()).current
   const [comments, setComments] = useState<JobComment[]>([])
   const [loading, setLoading] = useState(true)
@@ -39,6 +41,19 @@ export function useJobComments(jobId: string) {
     setLoading(true)
     load()
   }, [load])
+
+  // Neuabruf bei geändertem refreshToken (Realtime-Tick) — bewusst OHNE
+  // Ladezustand, damit ein Hintergrund-Refresh die Liste nicht sichtbar
+  // "wegblinkt". Der erste Aufruf (Mount) wird übersprungen, den deckt der
+  // Effect oben bereits ab.
+  const isFirstRefreshTokenRef = useRef(true)
+  useEffect(() => {
+    if (isFirstRefreshTokenRef.current) {
+      isFirstRefreshTokenRef.current = false
+      return
+    }
+    load()
+  }, [refreshToken, load])
 
   // Legt einen Kommentar an und lädt danach neu. Wirft bei Fehler weiter,
   // damit die UI ihn am Eingabefeld anzeigen kann.

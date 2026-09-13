@@ -29,6 +29,8 @@ import {
 import { JobDetailRow } from "@/components/jobs/JobDetailRow"
 import { JobTimeline } from "@/components/jobs/JobTimeline"
 import { JobComments } from "@/components/jobs/JobComments"
+import { useJobDetailRealtime } from "@/hooks/use-job-detail-realtime"
+import { useUnreadCommentIds } from "@/hooks/use-unread-comment-ids"
 import { getJobDisplayTime, getRecurringDaysLabel } from "@/lib/jobs/jobSchedule"
 import { formatDateISO, formatDateTimeDE } from "@/lib/date"
 import {
@@ -134,6 +136,12 @@ function JobDetailContent() {
   const [loading, setLoading] = useState(true)
   const [loadError, setLoadError] = useState<string | null>(null)
 
+  // EIN Kanal für diese Seite (job-status/-zeiten/-zuweisungen kommen über
+  // "jobs" realtime; Kommentare/Ungelesen-Status über das darin enthaltene
+  // Poll-Intervall — siehe hooks/use-job-detail-realtime.ts).
+  const realtimeTick = useJobDetailRealtime(supabase, jobId)
+  const { unreadJobIds, refresh: refreshUnread, markAsRead } = useUnreadCommentIds(supabase)
+
   useEffect(() => {
     let mounted = true
     const fetchJob = async () => {
@@ -158,7 +166,24 @@ function JobDetailContent() {
     return () => {
       mounted = false
     }
-  }, [jobId, supabase])
+    // realtimeTick bewusst in den Deps: jede Änderung löst denselben
+    // Neuabruf aus wie der initiale Mount (kein separater Reducer nötig).
+  }, [jobId, supabase, realtimeTick])
+
+  // Ungelesen-Status bei jedem Realtime-/Poll-Tick neu laden (deckt auch
+  // Kommentare anderer Nutzer ab, die keine jobs-Zeile berühren).
+  useEffect(() => {
+    void refreshUnread()
+  }, [realtimeTick, refreshUnread])
+
+  // Wie Mobiles JobDetailScreen: beim Öffnen als gelesen markieren (Web ist
+  // admin-only, daher immer erlaubt — kein isAssignedTo/isPrimaryAssignee-
+  // Zweig nötig). Läuft erst NACH dem ersten Laden, damit der Punkt kurz
+  // sichtbar ist, bevor er verschwindet.
+  useEffect(() => {
+    if (job && jobId) void markAsRead(jobId)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [jobId, !!job])
 
   if (loading) {
     return <div className="p-8 text-center text-muted-foreground">Auftrag wird geladen…</div>
@@ -398,8 +423,19 @@ function JobDetailContent() {
       )}
 
       {/* ── Kommentare ── */}
-      <SectionCard icon={MessageSquare} title="Kommentare">
-        <JobComments jobId={jobId} />
+      <SectionCard
+        icon={MessageSquare}
+        title="Kommentare"
+        action={
+          unreadJobIds.has(jobId) ? (
+            <span
+              aria-label="Ungelesene Kommentare"
+              className="h-2.5 w-2.5 shrink-0 rounded-full bg-destructive"
+            />
+          ) : undefined
+        }
+      >
+        <JobComments jobId={jobId} refreshToken={realtimeTick} />
       </SectionCard>
     </div>
   )
