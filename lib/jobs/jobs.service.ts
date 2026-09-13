@@ -239,6 +239,69 @@ export async function getExecutableJobsForEmployee(
   return (data ?? []) as unknown as JobWithAssignments[]
 }
 
+// ── Dashboard-KPIs ──────────────────────────────────────────────────────────
+// 1:1-Port von Mobiles getScheduleKpis (services/jobs/jobs.service.ts): reine
+// count/head-Abfragen mit Mobiles operativen Fenstern — unabhängig von der
+// Zeilenmenge der Jobliste. Regeln sind über job_type='single' ausgeschlossen,
+// pausierte offene Termine über excludePausedOccurrences, date-NULL-Zeilen
+// fallen durch die Datumsvergleiche heraus.
+//   Heute     : date = heute (alle Status)
+//   Offen     : status=open UND morgen ≤ date ≤ heute+30
+//   In Arbeit : status=in_progress
+//   Erledigt  : status=completed UND completed_at ≥ heute−30
+// Mobiles fünfter Zähler (Überfällig) speist dort nur ein Banner, das Web
+// (noch) nicht hat — deshalb hier nicht abgefragt.
+
+export const KPI_OPEN_WINDOW_DAYS = 30
+export const KPI_COMPLETED_LOOKBACK_DAYS = 30
+
+export type ScheduleKpis = {
+  heute: number
+  offen: number
+  inArbeit: number
+  erledigt: number
+}
+
+function addDaysToKey(key: string, days: number): string {
+  const [y, m, d] = key.split("-").map((n) => parseInt(n, 10))
+  const dt = new Date(y, m - 1, d)
+  dt.setDate(dt.getDate() + days)
+  return `${dt.getFullYear()}-${String(dt.getMonth() + 1).padStart(2, "0")}-${String(dt.getDate()).padStart(2, "0")}`
+}
+
+async function countJobs(
+  supabase: DB,
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  build: (q: any) => any,
+): Promise<number> {
+  const base = excludePausedOccurrences(
+    supabase.from("jobs").select("id", { count: "exact", head: true }).eq("job_type", "single"),
+  )
+  const { count, error } = await build(base)
+  if (error) throw error
+  return count ?? 0
+}
+
+// todayKey: lokales "YYYY-MM-DD" (wie Mobiles formatDateISO(new Date())).
+export async function getScheduleKpis(supabase: DB, todayKey: string): Promise<ScheduleKpis> {
+  const tomorrowKey = addDaysToKey(todayKey, 1)
+  const openEndKey = addDaysToKey(todayKey, KPI_OPEN_WINDOW_DAYS)
+  const completedSinceKey = addDaysToKey(todayKey, -KPI_COMPLETED_LOOKBACK_DAYS)
+
+  const [heute, offen, inArbeit, erledigt] = await Promise.all([
+    countJobs(supabase, (q) => q.eq("date", todayKey)),
+    countJobs(supabase, (q) =>
+      q.eq("status", "open").gte("date", tomorrowKey).lte("date", openEndKey),
+    ),
+    countJobs(supabase, (q) => q.eq("status", "in_progress")),
+    countJobs(supabase, (q) =>
+      q.eq("status", "completed").gte("completed_at", completedSinceKey),
+    ),
+  ])
+
+  return { heute, offen, inArbeit, erledigt }
+}
+
 export type EmployeeJobStats = {
   total: number
   open: number

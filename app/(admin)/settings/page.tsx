@@ -4,7 +4,10 @@ import { useEffect, useState } from "react"
 import { createClient } from "@/lib/supabase/client"
 import { SectionCard } from "@/components/dashboard/SectionCard"
 import { Badge } from "@/components/ui/badge"
-import { Building2, User } from "lucide-react"
+import { CompanySettingsForm } from "@/components/settings/CompanySettingsForm"
+import { ChangePasswordForm } from "@/components/settings/ChangePasswordForm"
+import type { CompanyContact } from "@/lib/company/company.service"
+import { Building2, KeyRound, User } from "lucide-react"
 
 function InfoLine({
   label,
@@ -42,7 +45,7 @@ export default function SettingsPage() {
   const [fullName, setFullName] = useState<string | null>(null)
   const [email, setEmail] = useState<string | null>(null)
   const [role, setRole] = useState<string | null>(null)
-  const [companyName, setCompanyName] = useState<string | null>(null)
+  const [company, setCompany] = useState<CompanyContact | null>(null)
   const [companyCreatedAt, setCompanyCreatedAt] = useState<string | null>(null)
   const [employeeCount, setEmployeeCount] = useState<number>(0)
 
@@ -69,11 +72,11 @@ export default function SettingsPage() {
         setRole(profile?.role ?? null)
       }
 
-      const [{ data: company }, { count }] = await Promise.all([
+      const [{ data: companyRow }, { count }] = await Promise.all([
         profile?.company_id
           ? supabase
               .from("companies")
-              .select("name, created_at")
+              .select("name, contact_email, contact_phone, created_at")
               .eq("id", profile.company_id)
               .single()
           : Promise.resolve({ data: null }),
@@ -84,8 +87,16 @@ export default function SettingsPage() {
       ])
 
       if (mounted) {
-        setCompanyName(company?.name ?? null)
-        setCompanyCreatedAt(company?.created_at ?? null)
+        setCompany(
+          companyRow
+            ? {
+                name: companyRow.name,
+                contactEmail: companyRow.contact_email,
+                contactPhone: companyRow.contact_phone,
+              }
+            : null,
+        )
+        setCompanyCreatedAt(companyRow?.created_at ?? null)
         setEmployeeCount(count ?? 0)
         setLoading(false)
       }
@@ -117,28 +128,40 @@ export default function SettingsPage() {
         <div className="grid grid-cols-1 items-start gap-5 lg:grid-cols-2">
           {/* Firmenprofil (inkl. Team) */}
           <SectionCard icon={Building2} title="Firmenprofil">
-            <div className="divide-y divide-gray-100">
-              <InfoLine label="Firmenname" value={companyName ?? "—"} />
+            {company ? (
+              <CompanySettingsForm company={company} />
+            ) : (
+              <p className="text-sm text-muted-foreground">
+                Firmendaten konnten nicht geladen werden.
+              </p>
+            )}
+            <div className="mt-4 divide-y divide-gray-100 border-t border-gray-100 pt-2">
               <InfoLine label="Mitglied seit" value={formatDate(companyCreatedAt)} />
               <InfoLine label="Mitarbeiter im Team" value={employeeCount} />
             </div>
           </SectionCard>
 
-          {/* Konto */}
-          <SectionCard icon={User} title="Konto">
-            <div className="divide-y divide-gray-100">
-              <InfoLine label="Name" value={fullName ?? "—"} />
-              <InfoLine label="E-Mail" value={email ?? "—"} />
-              <InfoLine
-                label="Rolle"
-                value={
-                  <Badge variant="info" className="capitalize">
-                    {roleLabel}
-                  </Badge>
-                }
-              />
-            </div>
-          </SectionCard>
+          <div className="space-y-5">
+            {/* Konto */}
+            <SectionCard icon={User} title="Konto">
+              <div className="divide-y divide-gray-100">
+                <InfoLine label="Name" value={fullName ?? "—"} />
+                <InfoLine label="E-Mail" value={email ?? "—"} />
+                <InfoLine
+                  label="Rolle"
+                  value={
+                    <Badge variant="info" className="capitalize">
+                      {roleLabel}
+                    </Badge>
+                  }
+                />
+              </div>
+            </SectionCard>
+
+            <SectionCard icon={KeyRound} title="Passwort ändern">
+              <ChangePasswordForm />
+            </SectionCard>
+          </div>
         </div>
       )}
     </div>

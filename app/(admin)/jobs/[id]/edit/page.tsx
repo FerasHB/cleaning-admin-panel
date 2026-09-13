@@ -11,6 +11,9 @@ import { EmptyState } from "@/components/ui/empty-state"
 import { ArrowLeft, Briefcase, Trash2 } from "lucide-react"
 import { JobFormFields } from "@/components/jobs/JobFormFields"
 import { EmployeeMultiSelect } from "@/components/jobs/EmployeeMultiSelect"
+import { AbsenceWarningPanel } from "@/components/jobs/AbsenceWarningPanel"
+import { useAssignmentAbsenceGuard } from "@/hooks/use-assignment-absence-guard"
+import { toAbsenceCheckInput } from "@/lib/jobs/assignmentAbsenceWarning"
 import {
   deleteJob,
   getEmployees,
@@ -49,6 +52,8 @@ export default function EditJobPage() {
   const [saving, setSaving] = useState(false)
   const [deleting, setDeleting] = useState(false)
   const [message, setMessage] = useState<{ tone: "error" | "warning"; text: string } | null>(null)
+  const { guardSave, warning, confirmWarning, dismissWarning } =
+    useAssignmentAbsenceGuard(supabase)
 
   const applyJob = useCallback((fresh: JobWithAssignments) => {
     const seeded = jobToFormValues(fresh)
@@ -110,6 +115,7 @@ export default function EditJobPage() {
     setValues((prev) => ({ ...prev, ...next }))
     setErrors({})
     setMessage(null)
+    dismissWarning()
   }
 
   const handleSubmit = async (e: React.FormEvent) => {
@@ -138,29 +144,44 @@ export default function EditJobPage() {
 
     setSaving(true)
     setMessage(null)
-    try {
-      await updateJob(supabase, { jobId: job.id, ...toJobInput(values, submittableIds) })
-      router.push(`/jobs/${job.id}`)
-      router.refresh()
-    } catch (err) {
-      if (err instanceof PartialUpdateError) {
-        // Teilerfolg: Zuweisung steht bereits. Frischen Serverstand nachladen,
-        // im Formular bleiben, NICHT automatisch erneut speichern.
-        setMessage({ tone: "warning", text: err.message })
-        try {
-          const fresh = await getJobById(supabase, job.id)
-          if (fresh) applyJob(fresh)
-        } catch (reloadErr) {
-          console.error("Failed to reload job after partial update:", reloadErr)
+    const jobInput = toJobInput(values, submittableIds)
+
+    const performSave = async () => {
+      try {
+        await updateJob(supabase, { jobId: job.id, ...jobInput })
+        router.push(`/jobs/${job.id}`)
+        router.refresh()
+      } catch (err) {
+        if (err instanceof PartialUpdateError) {
+          // Teilerfolg: Zuweisung steht bereits. Frischen Serverstand nachladen,
+          // im Formular bleiben, NICHT automatisch erneut speichern.
+          setMessage({ tone: "warning", text: err.message })
+          try {
+            const fresh = await getJobById(supabase, job.id)
+            if (fresh) applyJob(fresh)
+          } catch (reloadErr) {
+            console.error("Failed to reload job after partial update:", reloadErr)
+          }
+        } else {
+          setMessage({
+            tone: "error",
+            text: err instanceof Error ? err.message : "Job konnte nicht gespeichert werden.",
+          })
         }
-      } else {
-        setMessage({
-          tone: "error",
-          text: err instanceof Error ? err.message : "Job konnte nicht gespeichert werden.",
-        })
+        setSaving(false)
       }
-      setSaving(false)
     }
+
+    // Wie Mobiles EditJobScreen: mit dem AKTUELLEN Formularstand prüfen, auch
+    // wenn Zuweisung/Termin unverändert sind.
+    const outcome = await guardSave(toAbsenceCheckInput(jobInput, employees), performSave)
+    if (outcome !== "saved") setSaving(false)
+  }
+
+  const handleConfirmWarning = async () => {
+    if (saving) return
+    setSaving(true)
+    await confirmWarning()
   }
 
   const handleDelete = async () => {
@@ -267,6 +288,15 @@ export default function EditJobPage() {
                 </div>
               }
             />
+
+            {warning && (
+              <AbsenceWarningPanel
+                warning={warning}
+                onConfirm={() => void handleConfirmWarning()}
+                onCancel={dismissWarning}
+                disabled={busy}
+              />
+            )}
           </CardContent>
 
           <CardFooter className="flex justify-end gap-2 border-t p-6">
