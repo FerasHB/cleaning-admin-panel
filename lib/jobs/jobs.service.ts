@@ -263,6 +263,33 @@ export async function getJobsInRange(
   return (data ?? []) as unknown as JobWithAssignments[]
 }
 
+// Ausführbare Aufträge EINES Mitarbeiters in einem Datumsfenster — Kombination
+// aus getJobsInRange (Datumsfenster) und getExecutableJobsForEmployee
+// (Zuweisungsfilter), wie Mobiles getScheduleOccurrences({employee}). Für den
+// Stundenzettel: liefert planned_duration_minutes je zugewiesener Occurrence,
+// NIE aus tatsächlicher Arbeitszeit abgeleitet (siehe lib/timesheets).
+export async function getJobsInRangeForEmployee(
+  supabase: DB,
+  employeeId: string,
+  fromDateKey: string,
+  toDateKey: string,
+): Promise<JobWithAssignments[]> {
+  const { data, error } = await excludePausedOccurrences(
+    supabase
+      .from("jobs")
+      .select(JOB_SELECT + ASSIGNEE_FILTER_EMBED)
+      .eq("job_type", "single")
+      .eq("f.employee_id", employeeId)
+      .gte("date", fromDateKey)
+      .lte("date", toDateKey),
+  )
+    .order("date", { ascending: true })
+    .order("start_time", { ascending: true })
+
+  if (error) throw error
+  return (data ?? []) as unknown as JobWithAssignments[]
+}
+
 // Ausführbare Aufträge, denen ein Mitarbeiter zugewiesen ist (Zuweisungsmenge,
 // nicht Legacy-Zeiger) — serverseitiger Filter wie Mobiles applyEmployeeFilter.
 export async function getExecutableJobsForEmployee(

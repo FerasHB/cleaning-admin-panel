@@ -247,6 +247,27 @@ export async function getEmployeeAbsences(supabase: DB, employeeId: string): Pro
   return (data ?? []).map((row) => mapAbsence(row as AbsenceRow))
 }
 
+// Abwesenheiten eines Mitarbeiters, die einen Zeitraum ÜBERSCHNEIDEN (nicht
+// nur darin beginnen) — wie Mobiles getEmployeeAbsencesInRange. Für den
+// Stundenzettel: eine offene Krankmeldung (end_date = null) deckt jeden
+// Folgetag ab, muss also auch dann gefunden werden, wenn sie vor `from`
+// begann.
+export async function getEmployeeAbsencesInRange(
+  supabase: DB,
+  params: { employeeId: string; from: string; to: string },
+): Promise<Absence[]> {
+  const { data, error } = await supabase
+    .from("employee_absences")
+    .select(ABSENCE_SELECT)
+    .eq("employee_id", params.employeeId)
+    .lte("start_date", params.to)
+    .or(`end_date.is.null,end_date.gte.${params.from}`)
+    .order("start_date", { ascending: true })
+
+  if (error) throw error
+  return (data ?? []).map((row) => mapAbsence(row as AbsenceRow))
+}
+
 // Einzelne Abwesenheit per id (AU-Prüfseite) — RLS-scoped wie jede andere Lesung.
 export async function getAbsenceById(supabase: DB, absenceId: string): Promise<Absence | null> {
   const { data, error } = await supabase
