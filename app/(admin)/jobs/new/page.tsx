@@ -9,6 +9,9 @@ import { Card, CardContent, CardFooter } from "@/components/ui/card"
 import { ArrowLeft } from "lucide-react"
 import { JobFormFields } from "@/components/jobs/JobFormFields"
 import { EmployeeMultiSelect } from "@/components/jobs/EmployeeMultiSelect"
+import { AbsenceWarningPanel } from "@/components/jobs/AbsenceWarningPanel"
+import { useAssignmentAbsenceGuard } from "@/hooks/use-assignment-absence-guard"
+import { toAbsenceCheckInput } from "@/lib/jobs/assignmentAbsenceWarning"
 import {
   createJob,
   getEmployees,
@@ -34,6 +37,8 @@ export default function NewJobPage() {
   const [submitError, setSubmitError] = useState<string | null>(null)
   // Synchrone Sperre gegen Doppel-Absendung (wie Mobile).
   const submittingRef = useRef(false)
+  const { guardSave, warning, confirmWarning, dismissWarning } =
+    useAssignmentAbsenceGuard(supabase)
 
   useEffect(() => {
     let mounted = true
@@ -57,6 +62,9 @@ export default function NewJobPage() {
     setValues((prev) => ({ ...prev, ...next }))
     setErrors({})
     setSubmitError(null)
+    // Geänderte Eingaben → eine offene Warnung ist veraltet, beim nächsten
+    // Absenden wird neu geprüft.
+    dismissWarning()
   }
 
   const handleSubmit = async (e: React.FormEvent) => {
@@ -71,29 +79,41 @@ export default function NewJobPage() {
     setSubmitting(true)
     setSubmitError(null)
 
-    try {
-      // Nur aktive IDs senden (set_job_assignments lehnt inaktive ohnehin ab).
-      const activeIds = new Set(activeEmployees.map((emp) => emp.id))
-      const employeeIds = values.employeeIds.filter((id) => activeIds.has(id))
+    // Nur aktive IDs senden (set_job_assignments lehnt inaktive ohnehin ab).
+    const activeIds = new Set(activeEmployees.map((emp) => emp.id))
+    const employeeIds = values.employeeIds.filter((id) => activeIds.has(id))
+    const jobInput = toJobInput(values, employeeIds)
 
-      const { jobId, recurringOccurrencesFailed } = await createJob(
-        supabase,
-        toJobInput(values, employeeIds),
-      )
+    const performSave = async () => {
+      try {
+        const { jobId, recurringOccurrencesFailed } = await createJob(supabase, jobInput)
+        router.push(
+          recurringOccurrencesFailed
+            ? `/jobs/${jobId}?notice=occurrences-failed`
+            : `/jobs/${jobId}`,
+        )
+        router.refresh()
+      } catch (err) {
+        setSubmitError(
+          err instanceof Error ? err.message : "Job konnte nicht erstellt werden.",
+        )
+        submittingRef.current = false
+        setSubmitting(false)
+      }
+    }
 
-      router.push(
-        recurringOccurrencesFailed
-          ? `/jobs/${jobId}?notice=occurrences-failed`
-          : `/jobs/${jobId}`,
-      )
-      router.refresh()
-    } catch (err) {
-      setSubmitError(
-        err instanceof Error ? err.message : "Job konnte nicht erstellt werden.",
-      )
+    const outcome = await guardSave(toAbsenceCheckInput(jobInput, activeEmployees), performSave)
+    if (outcome !== "saved") {
       submittingRef.current = false
       setSubmitting(false)
     }
+  }
+
+  const handleConfirmWarning = async () => {
+    if (submittingRef.current) return
+    submittingRef.current = true
+    setSubmitting(true)
+    await confirmWarning()
   }
 
   return (
@@ -132,6 +152,15 @@ export default function NewJobPage() {
                 )
               }
             />
+
+            {warning && (
+              <AbsenceWarningPanel
+                warning={warning}
+                onConfirm={() => void handleConfirmWarning()}
+                onCancel={dismissWarning}
+                disabled={submitting}
+              />
+            )}
           </CardContent>
           <CardFooter className="flex justify-end gap-2 border-t p-6">
             <Button variant="outline" type="button" onClick={() => router.back()} disabled={submitting}>

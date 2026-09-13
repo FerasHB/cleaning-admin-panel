@@ -4,6 +4,7 @@ import { useEffect, useState } from "react"
 import Link from "next/link"
 import { createClient } from "@/lib/supabase/client"
 import { useAdminJobs } from "@/hooks/use-admin-jobs"
+import { useScheduleKpis } from "@/hooks/use-schedule-kpis"
 import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
 import { StatCard } from "@/components/dashboard/StatCard"
@@ -78,6 +79,8 @@ function initials(name: string | null) {
 
 export default function DashboardPage() {
   const { jobs, loading: jobsLoading, counts } = useAdminJobs()
+  // KPI-Kacheln: serverseitige Zähler mit Mobiles Fenstern (nicht aus `jobs`).
+  const { kpis, error: kpiError, reload: reloadKpis } = useScheduleKpis(jobs)
   // Neueste vom Admin angelegte Aufträge: Einzelaufträge und Dauerauftrags-
   // Regeln — generierte Termine entstehen gebündelt und würden die Liste
   // sonst verdrängen.
@@ -197,38 +200,47 @@ export default function DashboardPage() {
       </div>
 
       {/* ── KPI-Reihe ── */}
+      {kpiError && (
+        <div
+          role="alert"
+          className="flex items-center justify-between gap-3 rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-sm font-medium text-amber-800"
+        >
+          <span>{kpiError}</span>
+          <Button variant="outline" size="sm" onClick={() => void reloadKpis()}>
+            Erneut versuchen
+          </Button>
+        </div>
+      )}
       <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
         <StatCard
           icon={Inbox}
           label="Offen"
-          value={jobsLoading ? "—" : counts.open}
-          hint={jobsLoading ? undefined : `${pct(counts.open)} % aller Aufträge`}
+          value={kpis ? kpis.offen : "—"}
+          hint={kpis ? "morgen bis in 30 Tagen" : undefined}
           tone="amber"
         />
         <StatCard
           icon={Loader}
           label="In Arbeit"
-          value={jobsLoading ? "—" : counts.inProgress}
-          hint={
-            jobsLoading ? undefined : `${pct(counts.inProgress)} % aller Aufträge`
-          }
+          value={kpis ? kpis.inArbeit : "—"}
+          hint={kpis ? "gerade laufend" : undefined}
           tone="blue"
         />
         <StatCard
           icon={CheckCircle2}
           label="Erledigt"
-          value={jobsLoading ? "—" : counts.completed}
-          hint={jobsLoading ? undefined : `${pct(counts.completed)} % abgeschlossen`}
+          value={kpis ? kpis.erledigt : "—"}
+          hint={kpis ? "letzte 30 Tage" : undefined}
           tone="emerald"
         />
         <StatCard
           icon={CalendarDays}
           label="Heute"
-          value={jobsLoading ? "—" : counts.today}
+          value={kpis ? kpis.heute : "—"}
           hint={
-            jobsLoading
+            !kpis || jobsLoading
               ? undefined
-              : counts.today > 0
+              : kpis.heute > 0
                 ? `${todayCompleted} bereits erledigt`
                 : "nichts geplant"
           }
