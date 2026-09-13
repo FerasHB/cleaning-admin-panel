@@ -8,6 +8,7 @@ import {
   Briefcase,
   CalendarDays,
   CalendarOff,
+  Clock,
   LayoutDashboard,
   LogOut,
   MessageSquare,
@@ -40,6 +41,7 @@ const navGroups = [
     items: [
       { title: "Aufträge", href: "/jobs", icon: Briefcase },
       { title: "Kalender", href: "/calendar", icon: CalendarDays },
+      { title: "Stundenzettel", href: "/timesheets", icon: Clock },
       { title: "Mitarbeiter", href: "/employees", icon: Users },
       { title: "Abwesenheiten", href: "/absences", icon: CalendarOff },
     ],

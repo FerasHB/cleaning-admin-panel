@@ -60,3 +60,24 @@ export function formatDateTimeDE(iso: string | null | undefined): string | null 
     }) + " Uhr"
   )
 }
+
+/** Differenz in ganzen Minuten (≥ 0), gerundet. Port von Mobiles diffInMinutes. */
+export function diffInMinutes(
+  startIso: string | null | undefined,
+  endIso: string | null | undefined,
+): number {
+  if (!startIso || !endIso) return 0
+  const start = new Date(startIso).getTime()
+  const end = new Date(endIso).getTime()
+  if (isNaN(start) || isNaN(end)) return 0
+  const minutes = Math.round((end - start) / 60000)
+  return minutes > 0 ? minutes : 0
+}
+
+/** Formatiert Minuten als Stundenzettel-Kurzform "H:mm", z.B. 125 → "2:05". */
+export function formatDurationHm(totalMinutes: number): string {
+  const safe = totalMinutes > 0 ? totalMinutes : 0
+  const hours = Math.floor(safe / 60)
+  const minutes = safe % 60
+  return `${hours}:${String(minutes).padStart(2, "0")}`
+}
