@@ -29,7 +29,7 @@ export function AdminAbsenceRow({
 }: {
   absence: Absence
   showEmployeeName?: boolean
-  /** AU-Beleg-Status, nur Anzeige — Prüfung/Rückgabe ist in diesem PR nicht enthalten (siehe Report). */
+  /** AU-Beleg-Status; der Link führt zur eigentlichen Prüf-/Rückgabeseite. */
   evidence?: AbsenceEvidence
   review: ReturnType<typeof useVacationReview>
 }) {
@@ -61,9 +61,12 @@ export function AdminAbsenceRow({
         </span>
         <AbsenceStatusBadge absence={absence} />
         {showAuLabel && (
-          <span className="text-xs font-medium text-muted-foreground">
-            {evidence ? AU_STATUS_LABEL[evidence.status] : "Nicht geprüft"}
-          </span>
+          <Link
+            href={`/absences/${absence.id}/au`}
+            className="text-xs font-medium text-primary underline-offset-2 hover:underline"
+          >
+            {evidence ? AU_STATUS_LABEL[evidence.status] : "Nicht geprüft"} · prüfen
+          </Link>
         )}
         {pending && !isRowPending && (
           <div className="ml-auto flex gap-2">
