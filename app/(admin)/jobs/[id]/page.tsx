@@ -18,6 +18,7 @@ import {
   Clock,
   FileText,
   History,
+  Images,
   MapPin,
   MessageSquare,
   PauseCircle,
@@ -29,6 +30,7 @@ import {
 import { JobDetailRow } from "@/components/jobs/JobDetailRow"
 import { JobTimeline } from "@/components/jobs/JobTimeline"
 import { JobComments } from "@/components/jobs/JobComments"
+import { JobPhotos } from "@/components/jobs/JobPhotos"
 import { useJobDetailRealtime } from "@/hooks/use-job-detail-realtime"
 import { useUnreadCommentIds } from "@/hooks/use-unread-comment-ids"
 import { getJobDisplayTime, getRecurringDaysLabel } from "@/lib/jobs/jobSchedule"
@@ -421,6 +423,11 @@ function JobDetailContent() {
           </p>
         </SectionCard>
       )}
+
+      {/* ── Fotos ── */}
+      <SectionCard icon={Images} title="Fotos">
+        <JobPhotos jobId={jobId} />
+      </SectionCard>
 
       {/* ── Kommentare ── */}
       <SectionCard
