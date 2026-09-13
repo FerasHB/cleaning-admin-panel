@@ -1,11 +1,13 @@
 "use client"
 
-import { useEffect, useRef, useState } from "react"
+import { useEffect, useState } from "react"
 import { createClient } from "@/lib/supabase/client"
 import { isJobToday } from "@/lib/jobs/jobSchedule"
-import { Database } from "@/lib/supabase/database.types"
-
-type Job = Database["public"]["Tables"]["jobs"]["Row"]
+import {
+  getJobs,
+  isExecutableJob,
+  type JobWithAssignments,
+} from "@/lib/jobs/jobs.service"
 
 export type AdminJobCounts = {
   open: number
@@ -15,80 +17,74 @@ export type AdminJobCounts = {
 }
 
 export type UseAdminJobsResult = {
-  jobs: Job[]
+  jobs: JobWithAssignments[]
   loading: boolean
   error: string | null
   counts: AdminJobCounts
 }
 
-function deriveCounts(jobs: Job[]): AdminJobCounts {
+// Zähler nur über AUSFÜHRBARE Arbeit (Einzelaufträge + generierte Termine).
+// Dauerauftrags-Regeln sind Vorlagen ohne eigenen Arbeitsstatus — ihre Termine
+// sind bereits als eigene Zeilen enthalten und würden sonst doppelt zählen.
+function deriveCounts(jobs: JobWithAssignments[]): AdminJobCounts {
+  const executable = jobs.filter(isExecutableJob)
   return {
-    open: jobs.filter((j) => j.status === "open").length,
-    inProgress: jobs.filter((j) => j.status === "in_progress").length,
-    completed: jobs.filter((j) => j.status === "completed").length,
-    // "Heute fällig" recurring-fähig: single per Datum/scheduled_start,
-    // recurring per Wochentag, nur aktive — zentrale Logik aus jobSchedule.
-    today: jobs.filter((j) => isJobToday(j)).length,
+    open: executable.filter((j) => j.status === "open").length,
+    inProgress: executable.filter((j) => j.status === "in_progress").length,
+    completed: executable.filter((j) => j.status === "completed").length,
+    today: executable.filter((j) => isJobToday(j)).length,
   }
 }
 
+// Wartezeit, um mehrere Realtime-Events (z. B. Regel + Termine + Zuweisungen
+// eines Speichervorgangs) zu EINEM Nachladen zusammenzufassen.
+const REALTIME_REFETCH_DEBOUNCE_MS = 400
+
 export function useAdminJobs(): UseAdminJobsResult {
-  const [jobs, setJobs] = useState<Job[]>([])
+  const [supabase] = useState(() => createClient())
+  const [jobs, setJobs] = useState<JobWithAssignments[]>([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
-  const supabase = useRef(createClient()).current
 
   useEffect(() => {
     let mounted = true
+    let debounce: ReturnType<typeof setTimeout> | null = null
 
     const fetchJobs = async () => {
-      const { data, error } = await supabase
-        .from("jobs")
-        .select("*")
-        // created_at statt scheduled_start: recurring Jobs haben kein
-        // scheduled_start (NULL) und würden sonst zusammenklumpen.
-        .order("created_at", { ascending: false })
-
-      if (!mounted) return
-      if (error) {
-        setError(error.message)
-      } else {
-        setJobs(data ?? [])
+      try {
+        const data = await getJobs(supabase)
+        if (!mounted) return
+        setJobs(data)
+        setError(null)
+      } catch (err) {
+        if (!mounted) return
+        setError(err instanceof Error ? err.message : "Aufträge konnten nicht geladen werden.")
+      } finally {
+        if (mounted) setLoading(false)
       }
-      setLoading(false)
     }
 
     fetchJobs()
 
+    // Wie Mobile (JobContext): jedes jobs-Event lädt die Liste neu, statt die
+    // Payload-Zeile einzumischen. Die Payload trägt keine Zuweisungsmenge;
+    // Zuweisungsänderungen kommen über touch_job_on_assignment_change als
+    // jobs-UPDATE an und brauchen den frischen Embed.
     const channel = supabase
       .channel("admin-jobs-realtime")
-      .on(
-        "postgres_changes",
-        { event: "*", schema: "public", table: "jobs" },
-        (payload) => {
-          if (!mounted) return
-          if (payload.eventType === "INSERT") {
-            setJobs((prev) => [payload.new as Job, ...prev])
-          } else if (payload.eventType === "UPDATE") {
-            setJobs((prev) =>
-              prev.map((j) =>
-                j.id === (payload.new as Job).id ? (payload.new as Job) : j
-              )
-            )
-          } else if (payload.eventType === "DELETE") {
-            setJobs((prev) =>
-              prev.filter((j) => j.id !== (payload.old as { id: string }).id)
-            )
-          }
-        }
-      )
+      .on("postgres_changes", { event: "*", schema: "public", table: "jobs" }, () => {
+        if (!mounted) return
+        if (debounce) clearTimeout(debounce)
+        debounce = setTimeout(fetchJobs, REALTIME_REFETCH_DEBOUNCE_MS)
+      })
       .subscribe()
 
     return () => {
       mounted = false
+      if (debounce) clearTimeout(debounce)
       supabase.removeChannel(channel)
     }
-  }, [])
+  }, [supabase])
 
   return { jobs, loading, error, counts: deriveCounts(jobs) }
 }

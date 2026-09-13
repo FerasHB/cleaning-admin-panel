@@ -40,15 +40,11 @@ type CommentRow = {
   jobs?: { customer_name: string | null } | { customer_name: string | null }[] | null
 }
 
-type JobRow = {
-  id: string
-  customer_name: string | null
-  created_at: string
-  started_at: string | null
-  completed_at: string | null
-  assignee?: { full_name: string | null } | { full_name: string | null }[] | null
-  creator?: { full_name: string | null } | { full_name: string | null }[] | null
-}
+type ActorRel = { full_name: string | null } | { full_name: string | null }[] | null
+
+type StartedRow = { id: string; customer_name: string | null; started_at: string; starter?: ActorRel }
+type CompletedRow = { id: string; customer_name: string | null; completed_at: string; completer?: ActorRel }
+type CreatedRow = { id: string; customer_name: string | null; created_at: string; creator?: ActorRel }
 
 function jobCustomer(
   rel:
@@ -71,7 +67,14 @@ export async function getRecentActivity(
 ): Promise<ActivityItem[]> {
   const fetchN = Math.max(limit * 2, 10)
 
-  const [commentsRes, jobsRes] = await Promise.all([
+  // Je Ereignisart eine eigene, nach ihrem Zeitstempel sortierte Abfrage:
+  //  - gestartet/abgeschlossen: Akteur ist started_by/completed_by (wer den
+  //    Übergang tatsächlich ausgelöst hat) — nicht der Legacy-Zeiger
+  //    assigned_to, der bei Mehrfachzuweisung eine andere Person sein kann.
+  //  - erstellt: nur vom Admin angelegte Aufträge/Regeln (parent_job_id IS
+  //    NULL). Generierte Dauerauftrags-Termine entstehen gebündelt und würden
+  //    den Feed sonst verdrängen.
+  const [commentsRes, startedRes, completedRes, createdRes] = await Promise.all([
     supabase
       .from("job_comments")
       .select(
@@ -81,15 +84,28 @@ export async function getRecentActivity(
       .limit(fetchN),
     supabase
       .from("jobs")
-      .select(
-        "id, customer_name, created_at, started_at, completed_at, assignee:profiles!jobs_assigned_to_fkey(full_name), creator:profiles!jobs_created_by_fkey(full_name)",
-      )
+      .select("id, customer_name, started_at, starter:profiles!jobs_started_by_fkey(full_name)")
+      .not("started_at", "is", null)
+      .order("started_at", { ascending: false })
+      .limit(fetchN),
+    supabase
+      .from("jobs")
+      .select("id, customer_name, completed_at, completer:profiles!jobs_completed_by_fkey(full_name)")
+      .not("completed_at", "is", null)
+      .order("completed_at", { ascending: false })
+      .limit(fetchN),
+    supabase
+      .from("jobs")
+      .select("id, customer_name, created_at, creator:profiles!jobs_created_by_fkey(full_name)")
+      .is("parent_job_id", null)
       .order("created_at", { ascending: false })
       .limit(fetchN),
   ])
 
   if (commentsRes.error) throw commentsRes.error
-  if (jobsRes.error) throw jobsRes.error
+  if (startedRes.error) throw startedRes.error
+  if (completedRes.error) throw completedRes.error
+  if (createdRes.error) throw createdRes.error
 
   const items: ActivityItem[] = []
 
@@ -104,27 +120,29 @@ export async function getRecentActivity(
     })
   }
 
-  for (const j of (jobsRes.data ?? []) as unknown as JobRow[]) {
-    if (j.completed_at) {
-      items.push({
-        id: `completed-${j.id}`,
-        type: "completed",
-        actorName: firstName(j.assignee),
-        customerName: j.customer_name,
-        jobId: j.id,
-        at: j.completed_at,
-      })
-    }
-    if (j.started_at) {
-      items.push({
-        id: `started-${j.id}`,
-        type: "started",
-        actorName: firstName(j.assignee),
-        customerName: j.customer_name,
-        jobId: j.id,
-        at: j.started_at,
-      })
-    }
+  for (const j of (completedRes.data ?? []) as unknown as CompletedRow[]) {
+    items.push({
+      id: `completed-${j.id}`,
+      type: "completed",
+      actorName: firstName(j.completer),
+      customerName: j.customer_name,
+      jobId: j.id,
+      at: j.completed_at,
+    })
+  }
+
+  for (const j of (startedRes.data ?? []) as unknown as StartedRow[]) {
+    items.push({
+      id: `started-${j.id}`,
+      type: "started",
+      actorName: firstName(j.starter),
+      customerName: j.customer_name,
+      jobId: j.id,
+      at: j.started_at,
+    })
+  }
+
+  for (const j of (createdRes.data ?? []) as unknown as CreatedRow[]) {
     items.push({
       id: `created-${j.id}`,
       type: "created",

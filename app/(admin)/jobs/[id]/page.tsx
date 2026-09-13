@@ -1,8 +1,8 @@
 "use client"
 
-import { useEffect, useState } from "react"
+import { Suspense, useEffect, useState } from "react"
 import Link from "next/link"
-import { useParams, useRouter } from "next/navigation"
+import { useParams, useRouter, useSearchParams } from "next/navigation"
 import { createClient } from "@/lib/supabase/client"
 import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
@@ -12,7 +12,9 @@ import {
   ArrowLeft,
   Briefcase,
   Calendar,
+  CalendarClock,
   CheckCircle2,
+  ChevronRight,
   Clock,
   FileText,
   History,
@@ -21,23 +23,25 @@ import {
   PauseCircle,
   Pencil,
   Repeat,
+  Timer,
   User,
 } from "lucide-react"
 import { JobDetailRow } from "@/components/jobs/JobDetailRow"
 import { JobTimeline } from "@/components/jobs/JobTimeline"
 import { JobComments } from "@/components/jobs/JobComments"
 import { getJobDisplayTime, getRecurringDaysLabel } from "@/lib/jobs/jobSchedule"
-import { formatDateTimeDE } from "@/lib/date"
+import { formatDateISO, formatDateTimeDE } from "@/lib/date"
+import {
+  DELETED_SUFFIX,
+  getJobById,
+  getJobOccurrences,
+  isOccurrence,
+  isRecurringRule,
+  mapAssignees,
+  UNASSIGNED_LABEL,
+  type JobWithAssignments,
+} from "@/lib/jobs/jobs.service"
 import { cn } from "@/lib/utils"
-import type { Database } from "@/lib/supabase/database.types"
-
-type JobRow = Database["public"]["Tables"]["jobs"]["Row"]
-type JobDetail = JobRow & {
-  assignee:
-    | { full_name: string | null }
-    | { full_name: string | null }[]
-    | null
-}
 
 const STATUS_LABEL: Record<string, string> = {
   open: "Offen",
@@ -57,12 +61,6 @@ const STATUS_DOT: Record<string, string> = {
   completed: "bg-emerald-500",
 }
 
-function employeeName(job: JobDetail): string {
-  const a = job.assignee
-  const name = Array.isArray(a) ? a[0]?.full_name : a?.full_name
-  return name ?? "Nicht zugewiesen"
-}
-
 function initials(name: string | null): string {
   if (!name) return "?"
   return (
@@ -76,32 +74,84 @@ function initials(name: string | null): string {
   )
 }
 
-export default function JobDetailPage() {
+function formatDateDE(dateKey: string | null) {
+  if (!dateKey) return null
+  return new Date(`${dateKey.slice(0, 10)}T00:00`).toLocaleDateString("de-DE", {
+    day: "2-digit",
+    month: "2-digit",
+    year: "numeric",
+  })
+}
+
+function StatusBadge({ status }: { status: string }) {
+  return (
+    <Badge variant={STATUS_VARIANT[status] ?? "outline"} className="gap-1.5">
+      <span className={cn("h-1.5 w-1.5 rounded-full", STATUS_DOT[status] ?? "bg-muted-foreground")} />
+      {STATUS_LABEL[status] ?? status}
+    </Badge>
+  )
+}
+
+// Zugewiesene Mitarbeiter mit individuellem Arbeitsstand (aus job_assignments,
+// nicht aus der geteilten Job-Uhr abgeleitet).
+function AssigneeList({ job }: { job: JobWithAssignments }) {
+  const assignees = mapAssignees(job.assignments)
+  if (assignees.length === 0) {
+    return <span className="text-muted-foreground">{UNASSIGNED_LABEL}</span>
+  }
+  return (
+    <span className="flex flex-col gap-1">
+      {assignees.map((a) => (
+        <span key={a.assignmentId} className="flex flex-wrap items-center gap-x-2">
+          <span>
+            {a.fullName}
+            {a.isDeleted ? DELETED_SUFFIX : ""}
+          </span>
+          {a.employeeCompletedAt ? (
+            <span className="text-xs font-normal text-emerald-700">
+              erledigt {formatDateTimeDE(a.employeeCompletedAt)}
+            </span>
+          ) : a.employeeStartedAt ? (
+            <span className="text-xs font-normal text-blue-700">
+              gestartet {formatDateTimeDE(a.employeeStartedAt)}
+            </span>
+          ) : null}
+        </span>
+      ))}
+    </span>
+  )
+}
+
+function JobDetailContent() {
   const params = useParams()
   const router = useRouter()
+  const searchParams = useSearchParams()
   const jobId = params.id as string
-  const supabase = createClient()
+  const [supabase] = useState(() => createClient())
 
-  const [job, setJob] = useState<JobDetail | null>(null)
+  const [job, setJob] = useState<JobWithAssignments | null>(null)
+  const [occurrences, setOccurrences] = useState<JobWithAssignments[]>([])
   const [loading, setLoading] = useState(true)
+  const [loadError, setLoadError] = useState<string | null>(null)
 
   useEffect(() => {
     let mounted = true
     const fetchJob = async () => {
-      const { data, error } = await supabase
-        .from("jobs")
-        .select("*, assignee:profiles!jobs_assigned_to_fkey(full_name)")
-        .eq("id", jobId)
-        .single()
-
-      if (!mounted) return
-      if (error) {
-        console.error("Failed to fetch job:", error)
-        setJob(null)
-      } else {
-        setJob(data as unknown as JobDetail)
+      try {
+        const data = await getJobById(supabase, jobId)
+        if (!mounted) return
+        setJob(data)
+        // Regel: generierte Termine mitladen (read-only Übersicht).
+        if (data && isRecurringRule(data)) {
+          const occ = await getJobOccurrences(supabase, data.id)
+          if (mounted) setOccurrences(occ)
+        }
+      } catch (err) {
+        console.error("Failed to fetch job:", err)
+        if (mounted) setLoadError("Auftrag konnte nicht geladen werden.")
+      } finally {
+        if (mounted) setLoading(false)
       }
-      setLoading(false)
     }
 
     if (jobId) fetchJob()
@@ -114,12 +164,12 @@ export default function JobDetailPage() {
     return <div className="p-8 text-center text-muted-foreground">Auftrag wird geladen…</div>
   }
 
-  if (!job) {
+  if (loadError || !job) {
     return (
       <EmptyState
         icon={Briefcase}
-        title="Auftrag nicht gefunden"
-        description="Dieser Auftrag ist nicht (mehr) verfügbar."
+        title={loadError ? "Auftrag konnte nicht geladen werden" : "Auftrag nicht gefunden"}
+        description={loadError ?? "Dieser Auftrag ist nicht (mehr) verfügbar."}
         action={
           <Link href="/jobs">
             <Button>Zur Auftragsliste</Button>
@@ -129,14 +179,18 @@ export default function JobDetailPage() {
     )
   }
 
-  const isRecurring = job.job_type === "recurring"
+  const isRule = isRecurringRule(job)
+  const isOcc = isOccurrence(job)
   const displayTime = getJobDisplayTime(job)
-  const terminText = isRecurring
+  const terminText = isRule
     ? `${getRecurringDaysLabel(job)}${displayTime ? ` · ${displayTime} Uhr` : ""}`
-    : formatDateTimeDE(job.scheduled_start) ??
-      (job.date
-        ? `${job.date}${displayTime ? `, ${displayTime} Uhr` : ""}`
-        : "Kein Termin geplant")
+    : job.date
+      ? `${formatDateDE(job.date)}${displayTime ? `, ${displayTime} Uhr` : ""}`
+      : formatDateTimeDE(job.scheduled_start) ?? "Kein Termin geplant"
+
+  const todayKey = formatDateISO(new Date()) ?? ""
+  const upcomingOccurrences = occurrences.filter((o) => (o.date ?? "").slice(0, 10) >= todayKey)
+  const occurrencesFailed = searchParams.get("notice") === "occurrences-failed"
 
   return (
     <div className="space-y-5">
@@ -150,6 +204,13 @@ export default function JobDetailPage() {
         Aufträge
       </button>
 
+      {occurrencesFailed && (
+        <div className="rounded-md border border-amber-200 bg-amber-50 p-3 text-sm font-medium text-amber-800">
+          Der Job wurde angelegt, aber die Termine konnten nicht vollständig erzeugt werden.
+          Bitte prüfe die Terminierung.
+        </div>
+      )}
+
       {/* ── Kopfzeile ── */}
       <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
         <div className="flex items-start gap-3.5">
@@ -161,15 +222,15 @@ export default function JobDetailPage() {
               <h1 className="text-2xl font-bold tracking-tight text-foreground sm:text-3xl">
                 {job.customer_name}
               </h1>
-              <Badge variant={STATUS_VARIANT[job.status] ?? "outline"} className="gap-1.5">
-                <span
-                  className={cn(
-                    "h-1.5 w-1.5 rounded-full",
-                    STATUS_DOT[job.status] ?? "bg-muted-foreground",
-                  )}
-                />
-                {STATUS_LABEL[job.status] ?? job.status}
-              </Badge>
+              {/* Regeln haben keinen eigenen Arbeitsstatus — nur Termine/Einzelaufträge. */}
+              {isRule ? (
+                <Badge variant="secondary" className="gap-1">
+                  <Repeat className="h-3 w-3" />
+                  Dauerauftrag
+                </Badge>
+              ) : (
+                <StatusBadge status={job.status} />
+              )}
             </div>
             {/* Meta-Zeile: Leistung · Termin · Ort */}
             <div className="mt-1.5 flex flex-wrap items-center gap-x-3 gap-y-1 text-sm text-muted-foreground">
@@ -178,7 +239,7 @@ export default function JobDetailPage() {
                 {job.service_name}
               </span>
               <span className="flex items-center gap-1.5">
-                {isRecurring ? (
+                {isRule ? (
                   <Repeat className="h-3.5 w-3.5 shrink-0" />
                 ) : (
                   <Calendar className="h-3.5 w-3.5 shrink-0" />
@@ -192,6 +253,15 @@ export default function JobDetailPage() {
                 </span>
               )}
             </div>
+            {isOcc && job.parent_job_id && (
+              <Link
+                href={`/jobs/${job.parent_job_id}`}
+                className="mt-1.5 inline-flex items-center gap-1 text-xs font-medium text-primary hover:underline"
+              >
+                <Repeat className="h-3 w-3" />
+                Termin aus Dauerauftrag — Regel öffnen
+              </Link>
+            )}
           </div>
         </div>
 
@@ -205,7 +275,6 @@ export default function JobDetailPage() {
 
       {/* ── Details + Timeline ── */}
       <div className="grid grid-cols-1 items-start gap-5 lg:grid-cols-3">
-        {/* Details */}
         <SectionCard
           className="lg:col-span-2"
           icon={Briefcase}
@@ -219,36 +288,105 @@ export default function JobDetailPage() {
               label="Einsatzort"
               value={job.location_address || "—"}
             />
-            <JobDetailRow icon={User} label="Mitarbeiter" value={employeeName(job)} />
+            <JobDetailRow icon={User} label="Mitarbeiter" value={<AssigneeList job={job} />} />
             <JobDetailRow
-              icon={isRecurring ? Repeat : Calendar}
+              icon={isRule ? Repeat : Calendar}
               label="Auftragstyp"
-              value={isRecurring ? "Wiederkehrend" : "Einmalig"}
+              value={isRule ? "Dauerauftrag (Regel)" : isOcc ? "Termin eines Dauerauftrags" : "Einmalig"}
             />
             <JobDetailRow
               icon={Clock}
-              label={isRecurring ? "Wochentage & Uhrzeit" : "Termin"}
+              label={isRule ? "Wochentage & Uhrzeit" : "Termin"}
               value={terminText}
             />
-            {isRecurring && (
+            {job.planned_duration_minutes != null && (
               <JobDetailRow
-                icon={job.is_active ? CheckCircle2 : PauseCircle}
-                label="Status der Regel"
-                value={job.is_active ? "Aktiv" : "Inaktiv"}
+                icon={Timer}
+                label="Geplante Dauer"
+                value={`${job.planned_duration_minutes} Minuten`}
               />
+            )}
+            {isRule && (
+              <>
+                <JobDetailRow
+                  icon={job.is_active ? CheckCircle2 : PauseCircle}
+                  label="Status der Regel"
+                  value={job.is_active ? "Aktiv" : "Inaktiv"}
+                />
+                <JobDetailRow
+                  icon={Calendar}
+                  label="Gültigkeit"
+                  value={
+                    job.recurrence_start_date
+                      ? `ab ${formatDateDE(job.recurrence_start_date)}${
+                          job.recurrence_end_date ? ` bis ${formatDateDE(job.recurrence_end_date)}` : ""
+                        }`
+                      : "—"
+                  }
+                />
+              </>
             )}
           </div>
         </SectionCard>
 
-        {/* Timeline */}
+        {/* Timeline (nur für ausführbare Aufträge sinnvoll) */}
         <SectionCard icon={History} title="Verlauf">
-          <JobTimeline
-            createdAt={job.created_at}
-            startedAt={job.started_at}
-            completedAt={job.completed_at}
-          />
+          {isRule ? (
+            <p className="text-sm text-muted-foreground">
+              Daueraufträge werden über ihre einzelnen Termine gestartet und abgeschlossen.
+            </p>
+          ) : (
+            <JobTimeline
+              createdAt={job.created_at}
+              startedAt={job.started_at}
+              completedAt={job.completed_at}
+            />
+          )}
         </SectionCard>
       </div>
+
+      {/* ── Termine einer Regel ── */}
+      {isRule && (
+        <SectionCard
+          icon={CalendarClock}
+          title="Anstehende Termine"
+          subtitle={`${upcomingOccurrences.length} ab heute`}
+          noBodyPadding
+        >
+          {upcomingOccurrences.length === 0 ? (
+            <p className="px-5 py-6 text-sm text-muted-foreground">
+              Keine anstehenden Termine vorhanden.
+            </p>
+          ) : (
+            <ul className="max-h-[360px] divide-y divide-gray-100 overflow-y-auto">
+              {upcomingOccurrences.map((occ) => (
+                <li key={occ.id}>
+                  <Link
+                    href={`/jobs/${occ.id}`}
+                    className="group flex items-center gap-3 px-5 py-2.5 transition-colors hover:bg-gray-50/70"
+                  >
+                    <span className="w-24 shrink-0 text-sm tabular-nums text-foreground">
+                      {formatDateDE(occ.date)}
+                    </span>
+                    <span className="w-14 shrink-0 text-xs tabular-nums text-muted-foreground">
+                      {getJobDisplayTime(occ) ?? "—"}
+                    </span>
+                    <span className="min-w-0 flex-1 truncate text-sm text-muted-foreground">
+                      {mapAssignees(occ.assignments).map((a) => a.fullName).join(", ") || UNASSIGNED_LABEL}
+                    </span>
+                    {occ.is_active === false && occ.status === "open" ? (
+                      <Badge variant="secondary">Pausiert</Badge>
+                    ) : (
+                      <StatusBadge status={occ.status} />
+                    )}
+                    <ChevronRight className="h-4 w-4 shrink-0 text-muted-foreground/40 group-hover:text-muted-foreground" />
+                  </Link>
+                </li>
+              ))}
+            </ul>
+          )}
+        </SectionCard>
+      )}
 
       {/* ── Notizen ── */}
       {job.notes && (
@@ -264,5 +402,13 @@ export default function JobDetailPage() {
         <JobComments jobId={jobId} />
       </SectionCard>
     </div>
+  )
+}
+
+export default function JobDetailPage() {
+  return (
+    <Suspense>
+      <JobDetailContent />
+    </Suspense>
   )
 }

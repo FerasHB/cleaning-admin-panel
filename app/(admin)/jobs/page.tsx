@@ -8,12 +8,20 @@ import { Input } from "@/components/ui/input"
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
 import { Badge } from "@/components/ui/badge"
 import { SectionCard } from "@/components/dashboard/SectionCard"
-import { Calendar, CheckCircle2, ChevronRight, MapPin, PauseCircle, Plus, Repeat, Search } from "lucide-react"
+import { Calendar, CalendarClock, CheckCircle2, ChevronRight, MapPin, PauseCircle, Plus, Repeat, Search, Users } from "lucide-react"
 import { getJobDisplayTime, getRecurringDaysLabel, isJobToday } from "@/lib/jobs/jobSchedule"
+import { formatDateISO } from "@/lib/date"
+import {
+  getAssigneeNames,
+  isOccurrence,
+  isRecurringRule,
+  isStandaloneSingle,
+  UNASSIGNED_LABEL,
+  type JobWithAssignments,
+} from "@/lib/jobs/jobs.service"
 import { cn } from "@/lib/utils"
-import { Database } from "@/lib/supabase/database.types"
 
-type Job = Database["public"]["Tables"]["jobs"]["Row"]
+type Job = JobWithAssignments
 type StatusFilter = "all" | "open" | "in_progress" | "completed"
 
 const STATUS_LABEL: Record<string, string> = {
@@ -51,6 +59,12 @@ function formatDate(iso: string | null) {
   })
 }
 
+// Datum eines ausführbaren Auftrags: date ist maßgeblich (wie isJobToday),
+// scheduled_start nur Fallback für Alt-Daten.
+function jobDateLabel(job: Job) {
+  return formatDate(job.date ? `${job.date.slice(0, 10)}T00:00` : job.scheduled_start)
+}
+
 function initials(name: string | null) {
   if (!name) return "?"
   return (
@@ -62,6 +76,11 @@ function initials(name: string | null) {
       .join("")
       .toUpperCase() || "?"
   )
+}
+
+// Sortierschlüssel für Termine: Datum, dann Uhrzeit.
+function occurrenceSortKey(job: Job) {
+  return `${job.date ?? ""}T${job.start_time ?? ""}`
 }
 
 // ── Wiederverwendbare Zell-Bausteine (lokal, kein Shared-UI) ──
@@ -88,7 +107,7 @@ function CustomerCell({ job }: { job: Job }) {
 
 function AddressCell({ job }: { job: Job }) {
   return (
-    <TableCell className="hidden max-w-[220px] py-4 text-sm text-muted-foreground md:table-cell">
+    <TableCell className="hidden max-w-[220px] py-4 text-sm text-muted-foreground lg:table-cell">
       {job.location_address ? (
         <span className="flex items-center gap-1.5">
           <MapPin className="h-3.5 w-3.5 shrink-0 text-muted-foreground/60" />
@@ -96,6 +115,25 @@ function AddressCell({ job }: { job: Job }) {
         </span>
       ) : (
         <span className="text-muted-foreground/40">—</span>
+      )}
+    </TableCell>
+  )
+}
+
+// Zugewiesene Mitarbeiter aus der Zuweisungsmenge (job_assignments).
+function AssigneesCell({ job }: { job: Job }) {
+  const names = getAssigneeNames(job)
+  return (
+    <TableCell className="hidden max-w-[200px] py-4 text-sm md:table-cell">
+      {names.length === 0 ? (
+        <span className="text-muted-foreground/60">{UNASSIGNED_LABEL}</span>
+      ) : (
+        <span className="flex items-center gap-1.5 text-muted-foreground">
+          <Users className="h-3.5 w-3.5 shrink-0 text-muted-foreground/60" />
+          <span className="truncate" title={names.join(", ")}>
+            {names.length <= 2 ? names.join(", ") : `${names.slice(0, 2).join(", ")} +${names.length - 2}`}
+          </span>
+        </span>
       )}
     </TableCell>
   )
@@ -117,13 +155,48 @@ function StatusCell({ job }: { job: Job }) {
   )
 }
 
+function DateCell({ job }: { job: Job }) {
+  const today = isJobToday(job)
+  const time = getJobDisplayTime(job)
+  return (
+    <TableCell className="hidden py-4 sm:table-cell">
+      <div className="flex flex-col gap-0.5">
+        <span className="flex items-center gap-1.5 text-sm">
+          <Calendar className="h-3.5 w-3.5 shrink-0 text-muted-foreground/60" />
+          <span className="tabular-nums text-foreground">{jobDateLabel(job)}</span>
+          {today && (
+            <span className="rounded-full bg-primary/10 px-1.5 py-0.5 text-[10px] font-semibold text-primary">
+              Heute
+            </span>
+          )}
+        </span>
+        {time && (
+          <span className="pl-5 text-xs tabular-nums text-muted-foreground/70">
+            {time} Uhr
+          </span>
+        )}
+      </div>
+    </TableCell>
+  )
+}
+
 function ChevronCell({ job }: { job: Job }) {
   return (
     <TableCell className="py-4 pr-5 text-right">
-      <Link href={`/jobs/${job.id}`} className="inline-flex">
+      <Link href={`/jobs/${job.id}`} className="inline-flex" aria-label="Auftrag öffnen">
         <ChevronRight className="h-4 w-4 text-muted-foreground/40 transition-colors group-hover:text-muted-foreground" />
       </Link>
     </TableCell>
+  )
+}
+
+function LoadingRow({ colSpan }: { colSpan: number }) {
+  return (
+    <TableRow className="border-gray-100 hover:bg-transparent">
+      <TableCell colSpan={colSpan} className="h-24 text-center text-sm text-muted-foreground">
+        Aufträge werden geladen…
+      </TableCell>
+    </TableRow>
   )
 }
 
@@ -132,11 +205,13 @@ function EmptyRow({
   hasActiveFilters,
   emptyTitle,
   emptyHint,
+  showCreate = true,
 }: {
   colSpan: number
   hasActiveFilters: boolean
   emptyTitle: string
   emptyHint: string
+  showCreate?: boolean
 }) {
   return (
     <TableRow className="border-b-0 hover:bg-transparent">
@@ -153,7 +228,7 @@ function EmptyRow({
               {hasActiveFilters ? "Suche oder Statusfilter anpassen." : emptyHint}
             </p>
           </div>
-          {!hasActiveFilters && (
+          {!hasActiveFilters && showCreate && (
             <Link href="/jobs/new">
               <Button size="sm">Auftrag erstellen</Button>
             </Link>
@@ -164,31 +239,57 @@ function EmptyRow({
   )
 }
 
+const TH = "text-xs font-medium uppercase tracking-wide text-muted-foreground"
+
 export default function JobsPage() {
-  const { jobs, loading } = useAdminJobs()
+  const { jobs, loading, error } = useAdminJobs()
   const [search, setSearch] = useState("")
   const [statusFilter, setStatusFilter] = useState<StatusFilter>("all")
 
-  const matches = (job: Job) => {
-    const matchesSearch =
-      (job.customer_name?.toLowerCase() ?? "").includes(search.toLowerCase()) ||
-      (job.service_name?.toLowerCase() ?? "").includes(search.toLowerCase())
-    const matchesStatus = statusFilter === "all" || job.status === statusFilter
-    return matchesSearch && matchesStatus
+  const matchesSearch = (job: Job) => {
+    const q = search.toLowerCase()
+    return (
+      (job.customer_name?.toLowerCase() ?? "").includes(q) ||
+      (job.service_name?.toLowerCase() ?? "").includes(q)
+    )
   }
+  const matchesStatus = (job: Job) => statusFilter === "all" || job.status === statusFilter
 
-  const filtered = jobs.filter(matches)
-  const singles = filtered.filter((j) => j.job_type === "single")
-  const recurring = filtered.filter((j) => j.job_type === "recurring")
+  // Backend-Modell: drei getrennte Gruppen.
+  //   Einzelaufträge: job_type='single' ohne parent_job_id
+  //   Termine:        generierte Occurrences (parent_job_id gesetzt)
+  //   Daueraufträge:  Regeln (job_type='recurring' ohne parent_job_id)
+  const singles = jobs.filter(isStandaloneSingle)
+  const occurrences = jobs.filter(isOccurrence)
+  const rules = jobs.filter(isRecurringRule)
+
+  const filteredSingles = singles.filter((j) => matchesSearch(j) && matchesStatus(j))
+  const filteredOccurrences = occurrences
+    .filter((j) => matchesSearch(j) && matchesStatus(j))
+    .sort((a, b) => occurrenceSortKey(a).localeCompare(occurrenceSortKey(b)))
+  // Regeln haben keinen Arbeitsstatus — der Statusfilter gilt nur für Aufträge/Termine.
+  const filteredRules = rules.filter(matchesSearch)
+
+  // Nächster anstehender Termin je Regel (aus den bereits geladenen Terminen).
+  const todayKey = formatDateISO(new Date()) ?? ""
+  const upcomingByRule = new Map<string, { next: Job | null; count: number }>()
+  for (const occ of [...occurrences].sort((a, b) => occurrenceSortKey(a).localeCompare(occurrenceSortKey(b)))) {
+    if (!occ.parent_job_id || !occ.date || occ.date.slice(0, 10) < todayKey) continue
+    const entry = upcomingByRule.get(occ.parent_job_id) ?? { next: null, count: 0 }
+    entry.count += 1
+    if (!entry.next) entry.next = occ
+    upcomingByRule.set(occ.parent_job_id, entry)
+  }
 
   const hasActiveFilters = search.trim() !== "" || statusFilter !== "all"
 
-  // Counts für die Status-Pills — global über ALLE Jobs (beide Typen).
+  // Counts für die Status-Pills — über alle AUSFÜHRBAREN Aufträge (Einzelaufträge + Termine).
+  const executable = [...singles, ...occurrences]
   const counts = {
-    all:         jobs.length,
-    open:        jobs.filter((j) => j.status === "open").length,
-    in_progress: jobs.filter((j) => j.status === "in_progress").length,
-    completed:   jobs.filter((j) => j.status === "completed").length,
+    all:         executable.length,
+    open:        executable.filter((j) => j.status === "open").length,
+    in_progress: executable.filter((j) => j.status === "in_progress").length,
+    completed:   executable.filter((j) => j.status === "completed").length,
   }
 
   const pills: { key: StatusFilter; label: string }[] = [
@@ -197,6 +298,8 @@ export default function JobsPage() {
     { key: "in_progress", label: "In Arbeit" },
     { key: "completed",   label: "Erledigt" },
   ]
+
+  const countLabel = (n: number) => `${n} Auftr${n === 1 ? "ag" : "äge"}`
 
   return (
     <div className="space-y-5">
@@ -219,12 +322,19 @@ export default function JobsPage() {
         </Link>
       </div>
 
-      {/* ── Gemeinsame Toolbar: Suche + Status-Pills (filtern beide Listen) ── */}
+      {error && (
+        <div className="rounded-md bg-destructive/10 p-3 text-sm font-medium text-destructive">
+          Aufträge konnten nicht geladen werden: {error}
+        </div>
+      )}
+
+      {/* ── Gemeinsame Toolbar: Suche + Status-Pills ── */}
       <div className="flex flex-col gap-3 rounded-2xl border border-gray-100 bg-card px-5 py-3.5 shadow-[0_1px_2px_rgba(16,24,40,0.04),0_1px_3px_rgba(16,24,40,0.06)] lg:flex-row lg:items-center lg:justify-between">
         <div className="relative w-full lg:max-w-xs">
           <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
           <Input
             type="search"
+            aria-label="Aufträge durchsuchen"
             placeholder="Kunde oder Leistung suchen…"
             className="h-9 w-full pl-9 text-sm"
             value={search}
@@ -240,6 +350,7 @@ export default function JobsPage() {
                 key={p.key}
                 type="button"
                 onClick={() => setStatusFilter(p.key)}
+                aria-pressed={active}
                 className={cn(
                   "inline-flex items-center gap-1.5 rounded-full px-3 py-1.5 text-xs font-medium transition-colors",
                   active
@@ -262,124 +373,90 @@ export default function JobsPage() {
         </div>
       </div>
 
-      {/* ── Section A: Einmalige Aufträge ── */}
+      {/* ── Section A: Einzelaufträge ── */}
       <SectionCard
         icon={Calendar}
         title="Einmalige Aufträge"
-        subtitle={loading ? "Laden…" : `${singles.length} Auftr${singles.length === 1 ? "ag" : "äge"}`}
+        subtitle={loading ? "Laden…" : countLabel(filteredSingles.length)}
         noBodyPadding
       >
         <Table>
           <TableHeader>
             <TableRow className="border-gray-100 hover:bg-transparent">
-              <TableHead className="pl-5 text-xs font-medium uppercase tracking-wide text-muted-foreground">Kunde</TableHead>
-              <TableHead className="hidden text-xs font-medium uppercase tracking-wide text-muted-foreground md:table-cell">Adresse</TableHead>
-              <TableHead className="hidden text-xs font-medium uppercase tracking-wide text-muted-foreground sm:table-cell">Termin</TableHead>
-              <TableHead className="text-xs font-medium uppercase tracking-wide text-muted-foreground">Status</TableHead>
+              <TableHead className={cn("pl-5", TH)}>Kunde</TableHead>
+              <TableHead className={cn("hidden md:table-cell", TH)}>Mitarbeiter</TableHead>
+              <TableHead className={cn("hidden lg:table-cell", TH)}>Adresse</TableHead>
+              <TableHead className={cn("hidden sm:table-cell", TH)}>Termin</TableHead>
+              <TableHead className={TH}>Status</TableHead>
               <TableHead className="w-[44px] pr-5" />
             </TableRow>
           </TableHeader>
           <TableBody>
             {loading ? (
-              <TableRow className="border-gray-100 hover:bg-transparent">
-                <TableCell colSpan={5} className="h-24 text-center text-sm text-muted-foreground">
-                  Aufträge werden geladen…
-                </TableCell>
-              </TableRow>
-            ) : singles.length === 0 ? (
+              <LoadingRow colSpan={6} />
+            ) : filteredSingles.length === 0 ? (
               <EmptyRow
-                colSpan={5}
+                colSpan={6}
                 hasActiveFilters={hasActiveFilters}
                 emptyTitle="Noch keine einmaligen Aufträge"
                 emptyHint="Erstellen Sie Ihren ersten Auftrag, um zu beginnen."
               />
             ) : (
-              singles.map((job) => {
-                const today = isJobToday(job)
-                const time = getJobDisplayTime(job)
-                return (
-                  <TableRow
-                    key={job.id}
-                    className="group cursor-pointer border-gray-100 transition-colors hover:bg-gray-50/70"
-                  >
-                    <CustomerCell job={job} />
-                    <AddressCell job={job} />
-                    {/* Termin (Datum + Uhrzeit + Heute) */}
-                    <TableCell className="hidden py-4 sm:table-cell">
-                      <div className="flex flex-col gap-0.5">
-                        <span className="flex items-center gap-1.5 text-sm">
-                          <Calendar className="h-3.5 w-3.5 shrink-0 text-muted-foreground/60" />
-                          <span className="tabular-nums text-foreground">
-                            {formatDate(
-                              job.scheduled_start ??
-                                (job.date ? `${job.date}T00:00` : null),
-                            )}
-                          </span>
-                          {today && (
-                            <span className="rounded-full bg-primary/10 px-1.5 py-0.5 text-[10px] font-semibold text-primary">
-                              Heute
-                            </span>
-                          )}
-                        </span>
-                        {time && (
-                          <span className="pl-5 text-xs tabular-nums text-muted-foreground/70">
-                            {time} Uhr
-                          </span>
-                        )}
-                      </div>
-                    </TableCell>
-                    <StatusCell job={job} />
-                    <ChevronCell job={job} />
-                  </TableRow>
-                )
-              })
+              filteredSingles.map((job) => (
+                <TableRow key={job.id} className="group border-gray-100 transition-colors hover:bg-gray-50/70">
+                  <CustomerCell job={job} />
+                  <AssigneesCell job={job} />
+                  <AddressCell job={job} />
+                  <DateCell job={job} />
+                  <StatusCell job={job} />
+                  <ChevronCell job={job} />
+                </TableRow>
+              ))
             )}
           </TableBody>
         </Table>
       </SectionCard>
 
-      {/* ── Section B: Wiederkehrende Aufträge ── */}
+      {/* ── Section B: Daueraufträge (Regeln) ── */}
       <SectionCard
         icon={Repeat}
-        title="Wiederkehrende Aufträge"
-        subtitle={loading ? "Laden…" : `${recurring.length} Auftr${recurring.length === 1 ? "ag" : "äge"}`}
+        title="Daueraufträge"
+        subtitle={
+          loading
+            ? "Laden…"
+            : `${filteredRules.length} Regel${filteredRules.length === 1 ? "" : "n"} · Statusfilter gilt nur für Termine`
+        }
         noBodyPadding
       >
         <Table>
           <TableHeader>
             <TableRow className="border-gray-100 hover:bg-transparent">
-              <TableHead className="pl-5 text-xs font-medium uppercase tracking-wide text-muted-foreground">Kunde</TableHead>
-              <TableHead className="hidden text-xs font-medium uppercase tracking-wide text-muted-foreground md:table-cell">Adresse</TableHead>
-              <TableHead className="hidden text-xs font-medium uppercase tracking-wide text-muted-foreground sm:table-cell">Wochentage</TableHead>
-              <TableHead className="text-xs font-medium uppercase tracking-wide text-muted-foreground">Status</TableHead>
+              <TableHead className={cn("pl-5", TH)}>Kunde</TableHead>
+              <TableHead className={cn("hidden md:table-cell", TH)}>Mitarbeiter</TableHead>
+              <TableHead className={cn("hidden sm:table-cell", TH)}>Wochentage</TableHead>
+              <TableHead className={cn("hidden lg:table-cell", TH)}>Nächster Termin</TableHead>
+              <TableHead className={TH}>Regel</TableHead>
               <TableHead className="w-[44px] pr-5" />
             </TableRow>
           </TableHeader>
           <TableBody>
             {loading ? (
-              <TableRow className="border-gray-100 hover:bg-transparent">
-                <TableCell colSpan={5} className="h-24 text-center text-sm text-muted-foreground">
-                  Aufträge werden geladen…
-                </TableCell>
-              </TableRow>
-            ) : recurring.length === 0 ? (
+              <LoadingRow colSpan={6} />
+            ) : filteredRules.length === 0 ? (
               <EmptyRow
-                colSpan={5}
-                hasActiveFilters={hasActiveFilters}
-                emptyTitle="Noch keine wiederkehrenden Aufträge"
+                colSpan={6}
+                hasActiveFilters={search.trim() !== ""}
+                emptyTitle="Noch keine Daueraufträge"
                 emptyHint="Legen Sie einen wiederkehrenden Auftrag an, um zu beginnen."
               />
             ) : (
-              recurring.map((job) => {
+              filteredRules.map((job) => {
                 const time = getJobDisplayTime(job)
+                const upcoming = upcomingByRule.get(job.id)
                 return (
-                  <TableRow
-                    key={job.id}
-                    className="group cursor-pointer border-gray-100 transition-colors hover:bg-gray-50/70"
-                  >
+                  <TableRow key={job.id} className="group border-gray-100 transition-colors hover:bg-gray-50/70">
                     <CustomerCell job={job} />
-                    <AddressCell job={job} />
-                    {/* Wochentage + Uhrzeit */}
+                    <AssigneesCell job={job} />
                     <TableCell className="hidden py-4 sm:table-cell">
                       <div className="flex flex-col gap-1">
                         <Badge variant="secondary" className="w-fit gap-1 font-medium">
@@ -393,35 +470,80 @@ export default function JobsPage() {
                         )}
                       </div>
                     </TableCell>
-                    {/* Status + Aktiv/Inaktiv */}
+                    <TableCell className="hidden py-4 text-sm lg:table-cell">
+                      {upcoming?.next ? (
+                        <div className="flex flex-col gap-0.5">
+                          <span className="tabular-nums text-foreground">{jobDateLabel(upcoming.next)}</span>
+                          <span className="text-xs text-muted-foreground/70">
+                            {upcoming.count} anstehend
+                          </span>
+                        </div>
+                      ) : (
+                        <span className="text-muted-foreground/60">Keine anstehenden Termine</span>
+                      )}
+                    </TableCell>
                     <TableCell className="py-4">
-                      <div className="flex flex-wrap items-center gap-1.5">
-                        <Badge variant={STATUS_VARIANT[job.status] ?? "outline"} className="gap-1.5">
-                          <span
-                            className={cn(
-                              "h-1.5 w-1.5 rounded-full",
-                              STATUS_DOT[job.status] ?? "bg-muted-foreground",
-                            )}
-                          />
-                          {STATUS_LABEL[job.status] ?? job.status}
+                      {job.is_active ? (
+                        <Badge variant="success" className="gap-1">
+                          <CheckCircle2 className="h-3 w-3" />
+                          Aktiv
                         </Badge>
-                        {job.is_active ? (
-                          <Badge variant="success" className="gap-1">
-                            <CheckCircle2 className="h-3 w-3" />
-                            Aktiv
-                          </Badge>
-                        ) : (
-                          <Badge variant="secondary" className="gap-1">
-                            <PauseCircle className="h-3 w-3" />
-                            Inaktiv
-                          </Badge>
-                        )}
-                      </div>
+                      ) : (
+                        <Badge variant="secondary" className="gap-1">
+                          <PauseCircle className="h-3 w-3" />
+                          Inaktiv
+                        </Badge>
+                      )}
                     </TableCell>
                     <ChevronCell job={job} />
                   </TableRow>
                 )
               })
+            )}
+          </TableBody>
+        </Table>
+      </SectionCard>
+
+      {/* ── Section C: Termine aus Daueraufträgen ── */}
+      <SectionCard
+        icon={CalendarClock}
+        title="Termine aus Daueraufträgen"
+        subtitle={loading ? "Laden…" : `${filteredOccurrences.length} Termin${filteredOccurrences.length === 1 ? "" : "e"}`}
+        noBodyPadding
+      >
+        <Table>
+          <TableHeader>
+            <TableRow className="border-gray-100 hover:bg-transparent">
+              <TableHead className={cn("pl-5", TH)}>Kunde</TableHead>
+              <TableHead className={cn("hidden md:table-cell", TH)}>Mitarbeiter</TableHead>
+              <TableHead className={cn("hidden lg:table-cell", TH)}>Adresse</TableHead>
+              <TableHead className={cn("hidden sm:table-cell", TH)}>Termin</TableHead>
+              <TableHead className={TH}>Status</TableHead>
+              <TableHead className="w-[44px] pr-5" />
+            </TableRow>
+          </TableHeader>
+          <TableBody>
+            {loading ? (
+              <LoadingRow colSpan={6} />
+            ) : filteredOccurrences.length === 0 ? (
+              <EmptyRow
+                colSpan={6}
+                hasActiveFilters={hasActiveFilters}
+                emptyTitle="Keine Termine"
+                emptyHint="Termine werden aus aktiven Daueraufträgen automatisch erzeugt."
+                showCreate={false}
+              />
+            ) : (
+              filteredOccurrences.map((job) => (
+                <TableRow key={job.id} className="group border-gray-100 transition-colors hover:bg-gray-50/70">
+                  <CustomerCell job={job} />
+                  <AssigneesCell job={job} />
+                  <AddressCell job={job} />
+                  <DateCell job={job} />
+                  <StatusCell job={job} />
+                  <ChevronCell job={job} />
+                </TableRow>
+              ))
             )}
           </TableBody>
         </Table>

@@ -18,16 +18,13 @@ import { SectionCard } from "@/components/dashboard/SectionCard";
 import { StatCard } from "@/components/dashboard/StatCard";
 import { Users, Plus, X, Activity, Inbox, ChevronRight } from "lucide-react";
 import { Database } from "@/lib/supabase/database.types";
+import {
+  getAssignmentStatsByEmployee,
+  type EmployeeJobStats,
+} from "@/lib/jobs/jobs.service";
 
 type Profile = Database["public"]["Tables"]["profiles"]["Row"];
-type Job = Database["public"]["Tables"]["jobs"]["Row"];
-
-type EmployeeStats = {
-  total: number;
-  open: number;
-  in_progress: number;
-  completed: number;
-};
+type EmployeeStats = EmployeeJobStats;
 
 function generatePassword(): string {
   const chars = "abcdefghijkmnpqrstuvwxyzABCDEFGHJKLMNPQRSTUVWXYZ23456789!@#";
@@ -65,40 +62,25 @@ export default function EmployeesPage() {
     let mounted = true;
 
     const load = async () => {
-      const [{ data: empData }, { data: jobData }] = await Promise.all([
+      // Zähler aus der Zuweisungsmenge (job_assignments) — ein Auftrag mit
+      // mehreren Mitarbeitern zählt bei JEDEM von ihnen, nicht nur beim
+      // Legacy-Primär jobs.assigned_to.
+      const [{ data: empData }, statsResult] = await Promise.all([
         supabase
           .from("profiles")
           .select("*")
           .eq("role", "employee")
           .order("full_name", { ascending: true }),
-        supabase.from("jobs").select("assigned_to, status"),
+        getAssignmentStatsByEmployee(supabase).catch((err) => {
+          console.error("Failed to load assignment stats:", err);
+          return new Map<string, EmployeeStats>();
+        }),
       ]);
 
       if (!mounted) return;
 
       setEmployees((empData as Profile[]) ?? []);
-
-      const map = new Map<string, EmployeeStats>();
-      if (jobData) {
-        (jobData as Pick<Job, "assigned_to" | "status">[]).forEach((job) => {
-          if (!job.assigned_to) return;
-          if (!map.has(job.assigned_to)) {
-            map.set(job.assigned_to, {
-              total: 0,
-              open: 0,
-              in_progress: 0,
-              completed: 0,
-            });
-          }
-          const s = map.get(job.assigned_to)!;
-          s.total += 1;
-          if (job.status === "open") s.open += 1;
-          else if (job.status === "in_progress") s.in_progress += 1;
-          else if (job.status === "completed") s.completed += 1;
-        });
-      }
-      setStatsMap(map);
-
+      setStatsMap(statsResult);
       setLoading(false);
     };
 
