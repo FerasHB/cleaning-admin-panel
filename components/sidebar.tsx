@@ -14,6 +14,19 @@ import {
 } from "lucide-react"
 import { cn } from "@/lib/utils"
 import { createClient } from "@/lib/supabase/client"
+import {
+  deriveBackendEnvironmentLabel,
+  shouldShowBackendEnvironmentIndicator,
+} from "@/lib/backendEnvironment"
+
+// Computed once at module load from the public Supabase URL (same value
+// already shipped to the browser bundle for every Supabase call) — no
+// secret involved, purely which project ref this session points at.
+const BACKEND_ENV_LABEL = deriveBackendEnvironmentLabel(
+  process.env.NEXT_PUBLIC_SUPABASE_URL,
+)
+const SHOW_BACKEND_ENV_INDICATOR =
+  shouldShowBackendEnvironmentIndicator(BACKEND_ENV_LABEL)
 
 const navGroups = [
   {
@@ -120,6 +133,14 @@ export function Sidebar({ className }: React.HTMLAttributes<HTMLDivElement>) {
             Admin-Bereich
           </p>
         </div>
+        {SHOW_BACKEND_ENV_INDICATOR && (
+          <span
+            title="Diese Sitzung verwendet nicht das Produktions-Backend."
+            className="shrink-0 rounded-full bg-amber-100 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-amber-800"
+          >
+            {BACKEND_ENV_LABEL}
+          </span>
+        )}
       </div>
 
       {/* ── Navigation (gruppiert) ── */}
