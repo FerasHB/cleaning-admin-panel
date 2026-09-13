@@ -5,6 +5,7 @@ import Link from "next/link"
 import { createClient } from "@/lib/supabase/client"
 import { useAdminJobs } from "@/hooks/use-admin-jobs"
 import { useScheduleKpis } from "@/hooks/use-schedule-kpis"
+import { useAbsenceSignals } from "@/hooks/use-absence-signals"
 import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
 import { StatCard } from "@/components/dashboard/StatCard"
@@ -81,6 +82,7 @@ export default function DashboardPage() {
   const { jobs, loading: jobsLoading, counts } = useAdminJobs()
   // KPI-Kacheln: serverseitige Zähler mit Mobiles Fenstern (nicht aus `jobs`).
   const { kpis, error: kpiError, reload: reloadKpis } = useScheduleKpis(jobs)
+  const { pendingVacationCount, currentAbsences } = useAbsenceSignals()
   // Neueste vom Admin angelegte Aufträge: Einzelaufträge und Dauerauftrags-
   // Regeln — generierte Termine entstehen gebündelt und würden die Liste
   // sonst verdrängen.
@@ -198,6 +200,28 @@ export default function DashboardPage() {
           </p>
         </div>
       </div>
+
+      {/* ── Abwesenheits-Chips (nur wenn vorhanden) ── */}
+      {((pendingVacationCount ?? 0) > 0 || currentAbsences.length > 0) && (
+        <div className="flex flex-wrap gap-2">
+          {(pendingVacationCount ?? 0) > 0 && (
+            <Link
+              href="/absences?tab=vacation"
+              className="flex items-center gap-1.5 rounded-full bg-amber-50 px-3 py-1 text-xs font-medium text-amber-800 transition-colors hover:bg-amber-100"
+            >
+              {pendingVacationCount} offene Urlaubsanträge
+            </Link>
+          )}
+          {currentAbsences.length > 0 && (
+            <Link
+              href="/absences?tab=active"
+              className="flex items-center gap-1.5 rounded-full bg-blue-50 px-3 py-1 text-xs font-medium text-blue-800 transition-colors hover:bg-blue-100"
+            >
+              {currentAbsences.length} heute abwesend
+            </Link>
+          )}
+        </div>
+      )}
 
       {/* ── KPI-Reihe ── */}
       {kpiError && (
