@@ -130,6 +130,24 @@ export function mapAssignees(
 export const UNASSIGNED_LABEL = "Nicht zugewiesen"
 export const DELETED_SUFFIX = " (ehemalig)"
 
+// Port von Mobiles isCorrectableAssignment (utils/jobAssignees.ts): darf für
+// DIESE ZEILE überhaupt admin_correct_assignment_time gerufen werden?
+//   1. employeeId muss gesetzt sein — anonymisierte Zeilen (gelöschtes Konto)
+//      lehnt die RPC ausdrücklich ab.
+//   2. assignmentId muss eine echte job_assignments-UUID sein. Web zeigt
+//      (anders als Mobile) keinen Legacy-Fallback mit synthetischen IDs
+//      (siehe JOB_SELECT-Kommentar oben), die Prüfung bleibt dennoch als
+//      exakter Spiegel der Mobile-Regel bestehen.
+// Die Auftrags-Bedingungen (job_type='single', abgeschlossen, nach dem
+// Phase-1-Cutoff) prüft weiterhin allein isCorrectableJob — sie sind hier
+// nicht zuverlässig bekannt.
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
+
+export function isCorrectableAssignment(assignee: Pick<JobAssignee, "employeeId" | "assignmentId">): boolean {
+  if (!assignee.employeeId) return false
+  return UUID_RE.test(assignee.assignmentId)
+}
+
 export function getAssigneeNames(job: Pick<JobWithAssignments, "assignments">): string[] {
   return mapAssignees(job.assignments).map((a) =>
     a.isDeleted ? `${a.fullName}${DELETED_SUFFIX}` : a.fullName,

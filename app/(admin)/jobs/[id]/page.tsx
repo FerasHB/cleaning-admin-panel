@@ -31,18 +31,22 @@ import { JobDetailRow } from "@/components/jobs/JobDetailRow"
 import { JobTimeline } from "@/components/jobs/JobTimeline"
 import { JobComments } from "@/components/jobs/JobComments"
 import { JobPhotos } from "@/components/jobs/JobPhotos"
+import { TimeCorrectionPanel, type TimeCorrectionTarget } from "@/components/jobs/TimeCorrectionPanel"
 import { useJobDetailRealtime } from "@/hooks/use-job-detail-realtime"
 import { useUnreadCommentIds } from "@/hooks/use-unread-comment-ids"
 import { getJobDisplayTime, getRecurringDaysLabel } from "@/lib/jobs/jobSchedule"
 import { formatDateISO, formatDateTimeDE } from "@/lib/date"
+import { isCorrectableJob } from "@/lib/jobs/jobCorrection"
 import {
   DELETED_SUFFIX,
   getJobById,
   getJobOccurrences,
+  isCorrectableAssignment,
   isOccurrence,
   isRecurringRule,
   mapAssignees,
   UNASSIGNED_LABEL,
+  type JobAssignee,
   type JobWithAssignments,
 } from "@/lib/jobs/jobs.service"
 import { cn } from "@/lib/utils"
@@ -97,31 +101,59 @@ function StatusBadge({ status }: { status: string }) {
 }
 
 // Zugewiesene Mitarbeiter mit individuellem Arbeitsstand (aus job_assignments,
-// nicht aus der geteilten Job-Uhr abgeleitet).
-function AssigneeList({ job }: { job: JobWithAssignments }) {
+// nicht aus der geteilten Job-Uhr abgeleitet). Bei korrigierbaren Aufträgen
+// zusätzlich der Einstieg in die Zeitkorrektur je Zeile (Phase B1, Web-Port
+// von Mobiles AssignedEmployeesCard).
+function AssigneeList({
+  job,
+  onCorrectTime,
+}: {
+  job: JobWithAssignments
+  onCorrectTime: (assignee: JobAssignee) => void
+}) {
   const assignees = mapAssignees(job.assignments)
   if (assignees.length === 0) {
     return <span className="text-muted-foreground">{UNASSIGNED_LABEL}</span>
   }
+
+  // Deckungsgleich mit admin_correct_assignment_time: nur an einem
+  // korrigierbaren Auftrag wird die Aktion je Zuweisung überhaupt geprüft.
+  const jobIsCorrectable = isCorrectableJob(job)
+
   return (
-    <span className="flex flex-col gap-1">
-      {assignees.map((a) => (
-        <span key={a.assignmentId} className="flex flex-wrap items-center gap-x-2">
-          <span>
-            {a.fullName}
-            {a.isDeleted ? DELETED_SUFFIX : ""}
+    <span className="flex flex-col gap-1.5">
+      {assignees.map((a) => {
+        const showAction = jobIsCorrectable && isCorrectableAssignment(a)
+        return (
+          <span key={a.assignmentId} className="flex flex-wrap items-center gap-x-2">
+            <span>
+              {a.fullName}
+              {a.isDeleted ? DELETED_SUFFIX : ""}
+            </span>
+            {a.employeeCompletedAt ? (
+              <span className="text-xs font-normal text-emerald-700">
+                erledigt {formatDateTimeDE(a.employeeCompletedAt)}
+              </span>
+            ) : a.employeeStartedAt ? (
+              <span className="text-xs font-normal text-blue-700">
+                gestartet {formatDateTimeDE(a.employeeStartedAt)}
+              </span>
+            ) : jobIsCorrectable ? (
+              <span className="text-xs font-medium text-destructive">Keine eigene Zeit erfasst</span>
+            ) : null}
+            {showAction && (
+              <button
+                type="button"
+                onClick={() => onCorrectTime(a)}
+                aria-label={`Zeit korrigieren für ${a.fullName}`}
+                className="inline-flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-primary/10 text-primary transition-colors hover:bg-primary/20"
+              >
+                <Pencil className="h-3 w-3" />
+              </button>
+            )}
           </span>
-          {a.employeeCompletedAt ? (
-            <span className="text-xs font-normal text-emerald-700">
-              erledigt {formatDateTimeDE(a.employeeCompletedAt)}
-            </span>
-          ) : a.employeeStartedAt ? (
-            <span className="text-xs font-normal text-blue-700">
-              gestartet {formatDateTimeDE(a.employeeStartedAt)}
-            </span>
-          ) : null}
-        </span>
-      ))}
+        )
+      })}
     </span>
   )
 }
@@ -137,6 +169,16 @@ function JobDetailContent() {
   const [occurrences, setOccurrences] = useState<JobWithAssignments[]>([])
   const [loading, setLoading] = useState(true)
   const [loadError, setLoadError] = useState<string | null>(null)
+
+  // Ziel des Korrektur-Panels (Phase B1). AssigneeList zeigt die Aktion nur
+  // an korrigierbaren Zuweisungen — die RPC prüft Rolle/Firma zusätzlich
+  // serverseitig.
+  const [correctionTarget, setCorrectionTarget] = useState<TimeCorrectionTarget | null>(null)
+
+  // Sofortiger Neuabruf nach einer erfolgreichen Korrektur, unabhängig vom
+  // Realtime-Tick (der über touch_job_on_assignment_change_trg ohnehin
+  // nachzieht, aber mit Netzwerk-Latenz) — wie Mobiles handleCorrected.
+  const [manualRefreshToken, setManualRefreshToken] = useState(0)
 
   // EIN Kanal für diese Seite (job-status/-zeiten/-zuweisungen kommen über
   // "jobs" realtime; Kommentare/Ungelesen-Status über das darin enthaltene
@@ -168,9 +210,10 @@ function JobDetailContent() {
     return () => {
       mounted = false
     }
-    // realtimeTick bewusst in den Deps: jede Änderung löst denselben
-    // Neuabruf aus wie der initiale Mount (kein separater Reducer nötig).
-  }, [jobId, supabase, realtimeTick])
+    // realtimeTick/manualRefreshToken bewusst in den Deps: jede Änderung
+    // löst denselben Neuabruf aus wie der initiale Mount (kein separater
+    // Reducer nötig).
+  }, [jobId, supabase, realtimeTick, manualRefreshToken])
 
   // Ungelesen-Status bei jedem Realtime-/Poll-Tick neu laden (deckt auch
   // Kommentare anderer Nutzer ab, die keine jobs-Zeile berühren).
@@ -315,7 +358,30 @@ function JobDetailContent() {
               label="Einsatzort"
               value={job.location_address || "—"}
             />
-            <JobDetailRow icon={User} label="Mitarbeiter" value={<AssigneeList job={job} />} />
+            <JobDetailRow
+              icon={User}
+              label="Mitarbeiter"
+              value={
+                <AssigneeList
+                  job={job}
+                  onCorrectTime={(assignee) =>
+                    setCorrectionTarget({
+                      assignmentId: assignee.assignmentId,
+                      employeeName: assignee.fullName,
+                      customerName: job.customer_name,
+                      remark: job.service_name,
+                      employeeStartedAt: assignee.employeeStartedAt,
+                      employeeCompletedAt: assignee.employeeCompletedAt,
+                      // Vorschlag aus der GETEILTEN Auftragszeit — im Panel
+                      // ausdrücklich als solcher beschriftet, nie als
+                      // Arbeitszeit.
+                      sharedStartedAt: job.started_at,
+                      sharedCompletedAt: job.completed_at,
+                    })
+                  }
+                />
+              }
+            />
             <JobDetailRow
               icon={isRule ? Repeat : Calendar}
               label="Auftragstyp"
@@ -371,6 +437,17 @@ function JobDetailContent() {
           )}
         </SectionCard>
       </div>
+
+      {/* ── Zeitkorrektur (Phase B1): inline Panel statt Dialog, erscheint
+          nur, solange ein Ziel gewählt ist — siehe AssigneeList oben. ── */}
+      {correctionTarget && (
+        <TimeCorrectionPanel
+          supabase={supabase}
+          target={correctionTarget}
+          onClose={() => setCorrectionTarget(null)}
+          onCorrected={() => setManualRefreshToken((t) => t + 1)}
+        />
+      )}
 
       {/* ── Termine einer Regel ── */}
       {isRule && (
