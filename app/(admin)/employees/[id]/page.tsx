@@ -42,6 +42,19 @@ import {
   setEmployeeActive,
 } from "@/lib/employees/employees.service"
 import { formatPhoneForDisplay } from "@/lib/auth/validation"
+import { formatDateISO } from "@/lib/date"
+import {
+  getAbsenceEvidenceMap,
+  getEmployeeAbsences,
+  groupAbsences,
+  type Absence,
+  type AbsenceEvidence,
+} from "@/lib/absences/absences"
+import { AdminAbsenceRow } from "@/components/absences/AdminAbsenceRow"
+import { CreateAbsenceForm } from "@/components/absences/CreateAbsenceForm"
+import { VacationBalanceCard } from "@/components/absences/VacationBalanceCard"
+import { useVacationReview } from "@/hooks/use-vacation-review"
+import { CalendarOff, Wallet } from "lucide-react"
 
 type Profile = Database["public"]["Tables"]["profiles"]["Row"]
 type Job = JobWithAssignments
@@ -194,6 +207,18 @@ export default function EmployeeDetailPage() {
   const [notFound, setNotFound] = useState(false)
   const [email, setEmail] = useState<string | null>(null)
 
+  // Abwesenheiten (Urlaub/Krankheit) — separat geladen, damit ein Fehler hier
+  // die restliche Seite nicht blockiert.
+  const [absences, setAbsences] = useState<Absence[]>([])
+  const [absenceEvidence, setAbsenceEvidence] = useState<Map<string, AbsenceEvidence>>(new Map())
+  const [absencesError, setAbsencesError] = useState<string | null>(null)
+  const [showCreateAbsence, setShowCreateAbsence] = useState(false)
+
+  // Vor den frühen Returns unten aufgerufen (Rules of Hooks).
+  const absenceReview = useVacationReview(supabase, (updated) => {
+    setAbsences((prev) => prev.map((a) => (a.id === updated.id ? updated : a)))
+  })
+
   // Aktionen: Einladung erneut senden, (De)aktivieren (wie Mobiles
   // EmployeeDetailScreen, mit Sicherheitsabfrage vor dem Statuswechsel).
   const [actionMessage, setActionMessage] = useState<{ tone: "success" | "error"; text: string } | null>(null)
@@ -238,6 +263,22 @@ export default function EmployeeDetailPage() {
         console.error("Failed to load employee jobs:", jobsResult.error)
       }
       setJobs(jobsResult.data)
+      // Nicht durch is_active gefiltert — Verlauf bleibt für deaktivierte
+      // Mitarbeiter sichtbar (wie Mobiles EmployeeDetailScreen).
+      getEmployeeAbsences(supabase, employeeId)
+        .then(async (data) => {
+          if (!mounted) return
+          setAbsences(data)
+          setAbsenceEvidence(
+            await getAbsenceEvidenceMap(
+              supabase,
+              data.filter((a) => a.type === "sickness").map((a) => a.id),
+            ),
+          )
+        })
+        .catch((err) => {
+          if (mounted) setAbsencesError(err instanceof Error ? err.message : "Abwesenheiten konnten nicht geladen werden.")
+        })
       setComments(
         ((commentsRes.data ?? []) as unknown as CommentRow[]).map((c) => ({
           id: c.id,
@@ -298,6 +339,8 @@ export default function EmployeeDetailPage() {
     activityTimestamps.length > 0
       ? activityTimestamps.sort((a, b) => b.localeCompare(a))[0]
       : null
+
+  const groupedAbsences = groupAbsences(absences, formatDateISO(new Date()) ?? "")
 
   const roleLabel = profile.role === "admin" ? "Administrator" : "Mitarbeiter"
   const isEmployee = profile.role === "employee"
@@ -625,6 +668,102 @@ export default function EmployeeDetailPage() {
           </div>
         )}
       </SectionCard>
+
+      {/* ── Abwesenheiten (Urlaub/Krankheit) ── */}
+      <SectionCard
+        icon={CalendarOff}
+        title="Abwesenheiten"
+        subtitle="Aktuell, geplant und vergangen"
+        action={
+          <Button size="sm" variant="outline" onClick={() => setShowCreateAbsence((v) => !v)}>
+            Abwesenheit erfassen
+          </Button>
+        }
+        noBodyPadding={!showCreateAbsence}
+      >
+        {showCreateAbsence && (
+          <div className="border-b border-gray-100 p-5">
+            <CreateAbsenceForm
+              supabase={supabase}
+              employeeId={profile.id}
+              employeeName={profile.full_name ?? undefined}
+              onCreated={async () => {
+                setShowCreateAbsence(false)
+                const fresh = await getEmployeeAbsences(supabase, employeeId)
+                setAbsences(fresh)
+              }}
+              onCancel={() => setShowCreateAbsence(false)}
+            />
+          </div>
+        )}
+        {absencesError ? (
+          <p className="p-5 text-sm font-medium text-destructive">{absencesError}</p>
+        ) : absences.length === 0 ? (
+          <div className="flex items-center gap-2 px-5 py-6 text-sm text-muted-foreground">
+            <CalendarOff className="h-4 w-4" />
+            Keine Abwesenheiten erfasst.
+          </div>
+        ) : (
+          <>
+            {groupedAbsences.current.length > 0 && (
+              <ul className="divide-y divide-gray-100">
+                {groupedAbsences.current.map((a) => (
+                  <AdminAbsenceRow
+                    key={a.id}
+                    absence={a}
+                    showEmployeeName={false}
+                    evidence={absenceEvidence.get(a.id)}
+                    review={absenceReview}
+                  />
+                ))}
+              </ul>
+            )}
+            {groupedAbsences.upcoming.length > 0 && (
+              <div className="border-t border-gray-100">
+                <p className="px-5 pt-3 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+                  Anstehend
+                </p>
+                <ul className="divide-y divide-gray-100">
+                  {groupedAbsences.upcoming.map((a) => (
+                    <AdminAbsenceRow
+                      key={a.id}
+                      absence={a}
+                      showEmployeeName={false}
+                      evidence={absenceEvidence.get(a.id)}
+                      review={absenceReview}
+                    />
+                  ))}
+                </ul>
+              </div>
+            )}
+            {groupedAbsences.past.length > 0 && (
+              <div className="border-t border-gray-100">
+                <p className="px-5 pt-3 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+                  Vergangen
+                </p>
+                <ul className="divide-y divide-gray-100">
+                  {groupedAbsences.past.map((a) => (
+                    <AdminAbsenceRow
+                      key={a.id}
+                      absence={a}
+                      showEmployeeName={false}
+                      evidence={absenceEvidence.get(a.id)}
+                      review={absenceReview}
+                    />
+                  ))}
+                </ul>
+              </div>
+            )}
+          </>
+        )}
+      </SectionCard>
+
+      {/* ── Urlaubskonto ── */}
+      {isEmployee && (
+        <SectionCard icon={Wallet} title="Urlaubskonto" subtitle="Saldo & Verlauf">
+          <VacationBalanceCard supabase={supabase} employeeId={profile.id} />
+        </SectionCard>
+      )}
     </div>
   )
 }

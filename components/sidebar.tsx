@@ -6,6 +6,7 @@ import Link from "next/link"
 import { usePathname, useRouter } from "next/navigation"
 import {
   Briefcase,
+  CalendarOff,
   LayoutDashboard,
   LogOut,
   MessageSquare,
@@ -38,6 +39,7 @@ const navGroups = [
     items: [
       { title: "Aufträge", href: "/jobs", icon: Briefcase },
       { title: "Mitarbeiter", href: "/employees", icon: Users },
+      { title: "Abwesenheiten", href: "/absences", icon: CalendarOff },
     ],
   },
   {
