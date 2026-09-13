@@ -113,7 +113,27 @@ const RPC_MESSAGE_MAP: { match: RegExp; message: string }[] = [
   { match: /Adjustment amount must be a non-zero number/i, message: "Bitte einen Korrekturwert ungleich null angeben." },
   { match: /A reason is required for a manual adjustment/i, message: "Bitte einen Grund für die Korrektur angeben." },
   { match: /This sickness report already led to restored vacation days/i, message: "Für diese Krankmeldung wurden bereits Urlaubstage zurückgegeben — bitte den Admin kontaktieren." },
+  { match: /Only sickness absences can carry an AU/i, message: "Nur Krankmeldungen können eine Arbeitsunfähigkeit tragen." },
+  { match: /A cancelled sickness report cannot be reviewed/i, message: "Eine stornierte Krankmeldung kann nicht geprüft werden." },
+  { match: /This AU already has posted vacation restorations and can no longer be changed/i, message: "Für diese AU wurden bereits Urlaubstage zurückgegeben — sie kann nicht mehr geändert werden. Bitte das Urlaubskonto manuell korrigieren." },
+  { match: /Only admins can review an AU/i, message: "Nur Admins können eine AU prüfen." },
+  { match: /Sickness report not found or not in your company/i, message: "Diese Krankmeldung wurde nicht gefunden." },
+  { match: /Only admins can inspect restoration candidates/i, message: "Nur Admins können Rückgabe-Kandidaten einsehen." },
+  { match: /Evidence not found or not in your company/i, message: "Dieser AU-Nachweis wurde nicht gefunden." },
+  { match: /Vacation can only be restored for a CONFIRMED AU/i, message: "Urlaub kann nur bei einer bestätigten AU zurückgegeben werden." },
+  { match: /The sickness report was cancelled/i, message: "Diese Krankmeldung wurde storniert." },
+  { match: /At least one restoration item is required/i, message: "Bitte mindestens einen Posten angeben." },
+  { match: /Restoration days must be greater than 0/i, message: "Die Anzahl der Tage muss größer als 0 sein." },
+  { match: /Vacation year \d+ is not initialized/i, message: "Für dieses Urlaubsjahr wurde noch kein Urlaubskonto angelegt." },
+  { match: /No approved vacation deduction found for this vacation\/year/i, message: "Für diesen Urlaub und dieses Jahr wurde kein Abzug gefunden." },
+  { match: /Vacation does not overlap the sickness period/i, message: "Dieser Urlaub überschneidet sich nicht mit der Krankmeldung." },
+  { match: /Restoration exceeds the original deduction/i, message: "Die Rückgabe übersteigt den ursprünglichen Abzug." },
+  { match: /Only admins can restore vacation days/i, message: "Nur Admins können Urlaubstage zurückgeben." },
 ]
+
+function num(value: unknown): number {
+  return typeof value === "number" ? value : Number(value ?? 0)
+}
 
 export function toAbsenceMessage(err: unknown, fallback: string): string {
   const message =
@@ -227,6 +247,18 @@ export async function getEmployeeAbsences(supabase: DB, employeeId: string): Pro
   return (data ?? []).map((row) => mapAbsence(row as AbsenceRow))
 }
 
+// Einzelne Abwesenheit per id (AU-Prüfseite) — RLS-scoped wie jede andere Lesung.
+export async function getAbsenceById(supabase: DB, absenceId: string): Promise<Absence | null> {
+  const { data, error } = await supabase
+    .from("employee_absences")
+    .select(ABSENCE_SELECT)
+    .eq("id", absenceId)
+    .maybeSingle()
+
+  if (error) throw error
+  return data ? mapAbsence(data as AbsenceRow) : null
+}
+
 // AU-Beleg-Status (read-only Anzeige, keine Prüf-Aktionen in diesem PR).
 export type AbsenceEvidence = {
   id: string
@@ -270,6 +302,28 @@ export const AU_STATUS_LABEL: Record<AuEvidenceStatus, string> = {
   pending: "AU offen",
   confirmed: "AU bestätigt",
   rejected: "AU abgelehnt",
+}
+
+// Einzelner Beleg zu genau einer Krankmeldung — für die AU-Prüfseite, die
+// nach jeder Aktion neu lädt (kein Refetch der ganzen Liste nötig).
+export async function getAbsenceEvidence(supabase: DB, absenceId: string): Promise<AbsenceEvidence | null> {
+  const { data, error } = await supabase
+    .from("absence_evidence")
+    .select("id, absence_id, status, submitted_at, confirmed_by, confirmed_at, note")
+    .eq("absence_id", absenceId)
+    .maybeSingle()
+
+  if (error) throw error
+  if (!data) return null
+  return {
+    id: data.id,
+    absenceId: data.absence_id,
+    status: data.status,
+    submittedAt: data.submitted_at,
+    confirmedBy: data.confirmed_by,
+    confirmedAt: data.confirmed_at,
+    note: data.note,
+  }
 }
 
 // ── Write paths (RPC only) ──────────────────────────────────────────────────
@@ -325,4 +379,93 @@ export async function createAbsence(supabase: DB, input: CreateAbsenceInput): Pr
   const row = Array.isArray(data) ? data[0] : data
   if (!row) throw new Error("Abwesenheit konnte nicht erfasst werden.")
   return mapAbsence(row as AbsenceRow)
+}
+
+// ── AU-Prüfung + Urlaubs-Rückgabe (Port von Mobiles auEvidence.service.ts) ──
+// Backend unverändert (20260825000000_au_confirmation_restoration.sql):
+// admin_review_au / get_au_restoration_candidates / admin_restore_vacation_from_au
+// sind die EINZIGEN Schreibpfade — hier wird nichts selbst berechnet oder
+// in vacation_ledger geschrieben, exakt wie Mobile.
+
+// admin_review_au(p_absence_id, p_decision, p_note?) — Rückgabe ist die
+// absence_evidence.id. Idempotent bei gleicher Entscheidung; eine bereits
+// bestätigte AU mit gebuchten Rückgaben ist serverseitig gesperrt.
+export async function reviewAu(
+  supabase: DB,
+  absenceId: string,
+  decision: "confirmed" | "rejected",
+  note?: string,
+): Promise<string> {
+  const { data, error } = await supabase.rpc("admin_review_au", {
+    p_absence_id: absenceId,
+    p_decision: decision,
+    p_note: note?.trim() ? note.trim() : undefined,
+  })
+  if (error) throw error
+  return data as string
+}
+
+export type AuRestorationCandidate = {
+  vacationAbsenceId: string
+  vacationStart: string
+  vacationEnd: string
+  year: number
+  deductedDays: number
+  alreadyRestored: number
+  restorableDays: number
+  overlapStart: string
+  overlapEnd: string
+  fullCoverage: boolean
+}
+
+// get_au_restoration_candidates(p_absence_id) — p_absence_id ist die
+// KRANKMELDUNG, nicht der Beleg. Nur auf Basis tatsächlich gebuchter
+// Abzüge im Ledger, nie ein blosser Urlaubszeitraum.
+export async function getRestorationCandidates(
+  supabase: DB,
+  absenceId: string,
+): Promise<AuRestorationCandidate[]> {
+  const { data, error } = await supabase.rpc("get_au_restoration_candidates", {
+    p_absence_id: absenceId,
+  })
+  if (error) throw error
+  return (data ?? []).map((row) => ({
+    vacationAbsenceId: row.vacation_absence_id,
+    vacationStart: row.vacation_start,
+    vacationEnd: row.vacation_end,
+    year: row.year,
+    deductedDays: num(row.deducted_days),
+    alreadyRestored: num(row.already_restored),
+    restorableDays: num(row.restorable_days),
+    overlapStart: row.overlap_start,
+    overlapEnd: row.overlap_end,
+    fullCoverage: row.full_coverage,
+  }))
+}
+
+export type AuRestorationInput = {
+  vacation_absence_id: string
+  year: number
+  days: number
+}
+
+// admin_restore_vacation_from_au(p_evidence_id, p_restorations) — ein Posten
+// je (Urlaub, Jahr). Rückgabe ist die Anzahl NEU gebuchter Zeilen; ein
+// bereits gebuchter Posten wird serverseitig übersprungen (on conflict do
+// nothing) und zählt nicht mit — der Aufrufer erkennt daran ein "war
+// bereits gebucht" ohne eigene Duplikatsprüfung.
+export async function restoreVacationFromAu(
+  supabase: DB,
+  evidenceId: string,
+  restorations: AuRestorationInput[],
+): Promise<number> {
+  if (restorations.length === 0) {
+    throw new Error("Bitte mindestens einen Posten angeben.")
+  }
+  const { data, error } = await supabase.rpc("admin_restore_vacation_from_au", {
+    p_evidence_id: evidenceId,
+    p_restorations: restorations,
+  })
+  if (error) throw error
+  return (data as number) ?? 0
 }
