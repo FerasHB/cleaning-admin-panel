@@ -1,327 +1,272 @@
 "use client"
 
-import { Suspense, useEffect, useState } from "react"
-import { useRouter, useSearchParams } from "next/navigation"
+// Registrierung Business-Owner (Web-Pendant zu Mobiles RegisterScreen +
+// services/auth/registerAdmin.ts):
+//   1. supabase.auth.signUp — full_name in user_metadata (handle_new_user legt
+//      damit das Profil an: Rolle 'employee', noch ohne Firma). Zusätzlich die
+//      Firmendaten als Vorbelegung, falls erst die E-Mail bestätigt werden muss.
+//   2. Mit Sitzung: setup_company_for_admin (geschützte RPC) -> Dashboard.
+//      Schlägt das fehl, bleibt das Konto angemeldet und die Einrichtung wird
+//      auf /setup-company fortgesetzt (keine Sackgasse, kein Abmelden).
+//   3. Ohne Sitzung (E-Mail-Bestätigung aktiv): Hinweis auf dem Login; nach
+//      Bestätigung + Anmeldung leitet der Route-Guard auf /setup-company.
+//
+// Die ungeschützte Legacy-RPC register_admin_with_company wird nicht mehr
+// verwendet.
+
+import { useState } from "react"
 import Link from "next/link"
+import { useRouter } from "next/navigation"
 import { createClient } from "@/lib/supabase/client"
-import {
-  Card,
-  CardContent,
-  CardDescription,
-  CardFooter,
-  CardHeader,
-  CardTitle,
-} from "@/components/ui/card"
+import { CardContent, CardFooter } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
-import { Briefcase } from "lucide-react"
+import { AuthShell, Field, Notice } from "@/components/auth/AuthShell"
+import {
+  CompanyFields,
+  EMPTY_COMPANY_FORM,
+  validateCompanyForm,
+  type CompanyFormErrors,
+  type CompanyFormValues,
+} from "@/components/auth/CompanyFields"
+import {
+  isValidEmail,
+  MIN_PASSWORD_LENGTH,
+  normalizeEmail,
+  normalizePhone,
+  PASSWORD_MISMATCH_MESSAGE,
+  validatePassword,
+} from "@/lib/auth/validation"
+import { toFriendlyAuthErrorMessage } from "@/lib/auth/authErrorMessages"
+import {
+  PENDING_COMPANY_METADATA_KEY,
+  SETUP_FAILED_STORAGE_KEY,
+  setupCompanyForAdmin,
+  type PendingCompanyMetadata,
+} from "@/lib/company/setupCompany"
 
-function slugify(name: string): string {
-  const base = name
-    .toLowerCase()
-    .replace(/[^a-z0-9]+/g, "-")
-    .replace(/^-+|-+$/g, "")
-    .slice(0, 40)
-  const suffix = Math.random().toString(36).slice(2, 7)
-  return `${base}-${suffix}`
-}
-
-function RegisterContent() {
-  const searchParams = useSearchParams()
-  const isIncomplete = searchParams.get("incomplete") === "true"
-
-  const [fullName, setFullName] = useState("")
-  const [companyName, setCompanyName] = useState("")
-  const [email, setEmail] = useState("")
-  const [password, setPassword] = useState("")
-  const [error, setError] = useState<string | null>(null)
-  const [busy, setBusy] = useState(false)
-  const [existingName, setExistingName] = useState<string | null>(null)
-
-  const router = useRouter()
-  const supabase = createClient()
-
-  // When arriving via ?incomplete=true, load the authenticated user's name
-  // so we can pre-fill it and skip the auth step.
-  useEffect(() => {
-    if (!isIncomplete) return
-    supabase.auth.getUser().then(({ data }) => {
-      if (!data.user) {
-        // Session expired — fall back to full registration
-        router.replace("/register")
-      }
-    })
-    supabase
-      .from("profiles")
-      .select("full_name")
-      .then(({ data }) => {
-        if (data?.[0]?.full_name) setExistingName(data[0].full_name)
-      })
-  }, [isIncomplete])
-
-  // Full registration: create auth user + company + profile
-  const handleFullRegister = async (e: React.FormEvent) => {
-    e.preventDefault()
-    setError(null)
-    setBusy(true)
-
-    const { data: authData, error: signUpError } = await supabase.auth.signUp({
-      email,
-      password,
-    })
-
-    if (signUpError) {
-      setError(signUpError.message)
-      setBusy(false)
-      return
-    }
-
-    if (!authData.session) {
-      setError(
-        "A confirmation email has been sent. Please confirm your email address, then sign in. " +
-          "(Note: for the registration to complete automatically, email confirmation must be disabled in your Supabase project.)"
-      )
-      await supabase.auth.signOut()
-      setBusy(false)
-      return
-    }
-
-    await runCompanySetup(fullName.trim(), companyName.trim())
-  }
-
-  // Partial recovery: authenticated admin with no company — only create company + update profile
-  const handleCompleteSetup = async (e: React.FormEvent) => {
-    e.preventDefault()
-    setError(null)
-    setBusy(true)
-    await runCompanySetup(existingName ?? fullName.trim(), companyName.trim())
-  }
-
-  // Shared: call the atomic RPC, handle errors, redirect on success
-  const runCompanySetup = async (name: string, company: string) => {
-    const { error: rpcError } = await supabase.rpc("register_admin_with_company", {
-      p_full_name: name,
-      p_company_name: company,
-      p_company_slug: slugify(company),
-    })
-
-    if (rpcError) {
-      if (!isIncomplete) {
-        // Auth user was just created — sign them out so they are not stuck
-        await supabase.auth.signOut()
-      }
-      setError(
-        "Company setup failed: " +
-          rpcError.message +
-          (isIncomplete
-            ? " — Please try again."
-            : " — Your account was created but setup did not complete. Please try registering again.")
-      )
-      setBusy(false)
-      return
-    }
-
-    router.push("/dashboard")
-    router.refresh()
-  }
-
-  // ── Incomplete-setup mode ────────────────────────────────────────────────
-  if (isIncomplete) {
-    return (
-      <div className="flex min-h-screen items-center justify-center p-4 bg-muted/20">
-        <div className="w-full max-w-[440px]">
-          <div className="mb-8 flex flex-col items-center text-center">
-            <div className="mb-4 flex h-12 w-12 items-center justify-center rounded-full bg-primary/10">
-              <Briefcase className="h-6 w-6 text-primary" />
-            </div>
-            <h1 className="text-2xl font-bold">Einrichtung abschließen</h1>
-            <p className="text-muted-foreground mt-2">
-              Ihr Konto existiert bereits, aber der Firmen-Arbeitsbereich wurde noch nicht erstellt.
-              Geben Sie den Firmennamen ein, um die Einrichtung abzuschließen.
-            </p>
-          </div>
-
-          <Card>
-            <CardHeader>
-              <CardTitle>Firma erstellen</CardTitle>
-              <CardDescription>
-                Dieser Schritt verknüpft Ihr Konto mit einem Firmen-Arbeitsbereich.
-              </CardDescription>
-            </CardHeader>
-
-            <form onSubmit={handleCompleteSetup}>
-              <CardContent className="space-y-4">
-                {error && (
-                  <div className="rounded-md bg-destructive/10 p-3 text-sm text-destructive font-medium">
-                    {error}
-                  </div>
-                )}
-
-                {!existingName && (
-                  <div className="space-y-2">
-                    <label className="text-sm font-medium leading-none" htmlFor="fullNameIncomplete">
-                      Vollständiger Name
-                    </label>
-                    <Input
-                      id="fullNameIncomplete"
-                      type="text"
-                      placeholder="Jane Smith"
-                      required
-                      value={fullName}
-                      onChange={(e) => setFullName(e.target.value)}
-                      disabled={busy}
-                    />
-                  </div>
-                )}
-
-                <div className="space-y-2">
-                  <label className="text-sm font-medium leading-none" htmlFor="companyNameIncomplete">
-                    Firmenname
-                  </label>
-                  <Input
-                    id="companyNameIncomplete"
-                    type="text"
-                    placeholder="Meine Reinigungsfirma GmbH"
-                    required
-                    value={companyName}
-                    onChange={(e) => setCompanyName(e.target.value)}
-                    disabled={busy}
-                  />
-                </div>
-              </CardContent>
-
-              <CardFooter className="flex flex-col gap-3">
-                <Button type="submit" className="w-full" disabled={busy}>
-                  {busy ? "Wird eingerichtet…" : "Einrichtung abschließen"}
-                </Button>
-                <p className="text-sm text-muted-foreground text-center">
-                  Falsches Konto?{" "}
-                  <Link href="/login" className="underline hover:text-foreground">
-                    Abmelden und neu anmelden
-                  </Link>
-                </p>
-              </CardFooter>
-            </form>
-          </Card>
-        </div>
-      </div>
-    )
-  }
-
-  // ── Full registration mode ───────────────────────────────────────────────
-  return (
-    <div className="flex min-h-screen items-center justify-center p-4 bg-muted/20">
-      <div className="w-full max-w-[440px]">
-        <div className="mb-8 flex flex-col items-center text-center">
-          <div className="mb-4 flex h-12 w-12 items-center justify-center rounded-full bg-primary/10">
-            <Briefcase className="h-6 w-6 text-primary" />
-          </div>
-          <h1 className="text-2xl font-bold">Firma erstellen</h1>
-          <p className="text-muted-foreground mt-2">
-            Create your company workspace and admin account.
-          </p>
-        </div>
-
-        <Card>
-          <CardHeader>
-            <CardTitle>Registrieren</CardTitle>
-            <CardDescription>
-              Geben Sie Ihre Daten ein, um Ihr Admin-Konto und Ihre Firma zu erstellen.
-            </CardDescription>
-          </CardHeader>
-
-          <form onSubmit={handleFullRegister}>
-            <CardContent className="space-y-4">
-              {error && (
-                <div className="rounded-md bg-destructive/10 p-3 text-sm text-destructive font-medium">
-                  {error}
-                </div>
-              )}
-
-              <div className="space-y-2">
-                <label className="text-sm font-medium leading-none" htmlFor="fullName">
-                  Vollständiger Name
-                </label>
-                <Input
-                  id="fullName"
-                  type="text"
-                  placeholder="Jane Smith"
-                  required
-                  value={fullName}
-                  onChange={(e) => setFullName(e.target.value)}
-                  disabled={busy}
-                />
-              </div>
-
-              <div className="space-y-2">
-                <label className="text-sm font-medium leading-none" htmlFor="companyName">
-                  Firmenname
-                </label>
-                <Input
-                  id="companyName"
-                  type="text"
-                  placeholder="Meine Reinigungsfirma GmbH"
-                  required
-                  value={companyName}
-                  onChange={(e) => setCompanyName(e.target.value)}
-                  disabled={busy}
-                />
-              </div>
-
-              <div className="space-y-2">
-                <label className="text-sm font-medium leading-none" htmlFor="email">
-                  E-Mail
-                </label>
-                <Input
-                  id="email"
-                  type="email"
-                  placeholder="admin@meinefirma.de"
-                  required
-                  value={email}
-                  onChange={(e) => setEmail(e.target.value)}
-                  disabled={busy}
-                />
-              </div>
-
-              <div className="space-y-2">
-                <label className="text-sm font-medium leading-none" htmlFor="password">
-                  Passwort
-                </label>
-                <Input
-                  id="password"
-                  type="password"
-                  placeholder="Mindestens 8 Zeichen"
-                  required
-                  minLength={8}
-                  value={password}
-                  onChange={(e) => setPassword(e.target.value)}
-                  disabled={busy}
-                />
-              </div>
-            </CardContent>
-
-            <CardFooter className="flex flex-col gap-3">
-              <Button type="submit" className="w-full" disabled={busy}>
-                {busy ? "Firma wird eingerichtet…" : "Firma & Konto erstellen"}
-              </Button>
-              <p className="text-sm text-muted-foreground text-center">
-                Bereits ein Konto?{" "}
-                <Link href="/login" className="underline hover:text-foreground">
-                  Anmelden
-                </Link>
-              </p>
-            </CardFooter>
-          </form>
-        </Card>
-      </div>
-    </div>
-  )
+type AccountErrors = {
+  fullName?: string
+  email?: string
+  password?: string
+  passwordConfirm?: string
 }
 
 export default function RegisterPage() {
+  const router = useRouter()
+  const [supabase] = useState(() => createClient())
+
+  const [fullName, setFullName] = useState("")
+  const [email, setEmail] = useState("")
+  const [password, setPassword] = useState("")
+  const [passwordConfirm, setPasswordConfirm] = useState("")
+  const [company, setCompany] = useState<CompanyFormValues>(EMPTY_COMPANY_FORM)
+
+  const [accountErrors, setAccountErrors] = useState<AccountErrors>({})
+  const [companyErrors, setCompanyErrors] = useState<CompanyFormErrors>({})
+  const [formError, setFormError] = useState("")
+  const [busy, setBusy] = useState(false)
+
+  const clearErrors = () => {
+    setAccountErrors({})
+    setCompanyErrors({})
+    setFormError("")
+  }
+
+  // Validierung wie Mobiles RegisterScreen.validate().
+  const validate = () => {
+    const nextAccount: AccountErrors = {}
+    if (!fullName.trim()) nextAccount.fullName = "Name ist erforderlich."
+    if (!email.trim()) nextAccount.email = "E-Mail ist erforderlich."
+    else if (!isValidEmail(email)) nextAccount.email = "Bitte gib eine gültige E-Mail-Adresse ein."
+    const passwordError = validatePassword(password)
+    if (passwordError) nextAccount.password = passwordError
+    else if (!passwordConfirm) nextAccount.passwordConfirm = "Passwort bestätigen."
+    else if (password !== passwordConfirm) nextAccount.passwordConfirm = PASSWORD_MISMATCH_MESSAGE
+
+    const nextCompany = validateCompanyForm(company)
+    setAccountErrors(nextAccount)
+    setCompanyErrors(nextCompany)
+    return Object.keys(nextAccount).length === 0 && Object.keys(nextCompany).length === 0
+  }
+
+  const handleRegister = async (e: React.FormEvent) => {
+    e.preventDefault()
+    setFormError("")
+    if (!validate()) return
+
+    setBusy(true)
+
+    const pendingCompany: PendingCompanyMetadata = {
+      companyName: company.companyName.trim(),
+      contactEmail: normalizeEmail(company.companyEmail),
+      contactPhone: normalizePhone(company.companyPhone) ?? company.companyPhone.trim(),
+      adminPhone: company.adminPhone.trim()
+        ? (normalizePhone(company.adminPhone) ?? company.adminPhone.trim())
+        : undefined,
+    }
+
+    const { data, error } = await supabase.auth.signUp({
+      email: normalizeEmail(email),
+      password,
+      options: {
+        data: {
+          full_name: fullName.trim(),
+          [PENDING_COMPANY_METADATA_KEY]: pendingCompany,
+        },
+      },
+    })
+
+    if (error) {
+      setFormError(toFriendlyAuthErrorMessage(error, "Registrierung fehlgeschlagen."))
+      setBusy(false)
+      return
+    }
+
+    // Bei aktiver E-Mail-Bestätigung verschleiert Supabase bestehende Konten:
+    // Nutzer ohne Identitäten = E-Mail ist bereits registriert.
+    if (data.user && Array.isArray(data.user.identities) && data.user.identities.length === 0) {
+      setFormError("Für diese E-Mail-Adresse existiert bereits ein Konto.")
+      setBusy(false)
+      return
+    }
+
+    if (!data.session) {
+      // Konto angelegt, E-Mail muss bestätigt werden. Keine Sitzung -> nichts
+      // abzumelden; die Einrichtung folgt nach Bestätigung + Anmeldung.
+      router.replace("/login?registered=confirm")
+      return
+    }
+
+    try {
+      await setupCompanyForAdmin(supabase, {
+        companyName: company.companyName,
+        contactEmail: company.companyEmail,
+        contactPhone: company.companyPhone,
+        adminPhone: company.adminPhone,
+      })
+      router.replace("/dashboard")
+      router.refresh()
+    } catch (err) {
+      // Konto existiert und ist angelegt — NICHT abmelden. Einrichtung auf
+      // /setup-company fortsetzen (Firmendaten sind vorbelegt).
+      try {
+        sessionStorage.setItem(
+          SETUP_FAILED_STORAGE_KEY,
+          err instanceof Error ? err.message : "Firma konnte nicht erstellt werden.",
+        )
+      } catch {
+        // sessionStorage nicht verfügbar — generische Meldung auf der Zielseite.
+      }
+      router.replace("/setup-company?setup=failed")
+      router.refresh()
+    }
+  }
+
   return (
-    <Suspense>
-      <RegisterContent />
-    </Suspense>
+    <AuthShell
+      heading="Firma erstellen"
+      subheading="Lege deinen Firmen-Arbeitsbereich und dein Admin-Konto an."
+      title="Registrieren"
+      description="Gib deine Daten ein, um dein Admin-Konto und deine Firma zu erstellen."
+      wide
+    >
+      <form onSubmit={handleRegister} noValidate>
+        <CardContent className="space-y-6">
+          {formError && <Notice tone="error">{formError}</Notice>}
+
+          <div className="space-y-4">
+            <p className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
+              Dein Konto
+            </p>
+            <Field id="fullName" label="Vollständiger Name" error={accountErrors.fullName}>
+              <Input
+                id="fullName"
+                autoComplete="name"
+                placeholder="Jane Smith"
+                value={fullName}
+                onChange={(e) => {
+                  setFullName(e.target.value)
+                  clearErrors()
+                }}
+                disabled={busy}
+              />
+            </Field>
+            <Field id="email" label="E-Mail" error={accountErrors.email}>
+              <Input
+                id="email"
+                type="email"
+                autoComplete="email"
+                placeholder="admin@meinefirma.de"
+                value={email}
+                onChange={(e) => {
+                  setEmail(e.target.value)
+                  clearErrors()
+                }}
+                disabled={busy}
+              />
+            </Field>
+            <Field
+              id="password"
+              label="Passwort"
+              error={accountErrors.password}
+              hint={`Mindestens ${MIN_PASSWORD_LENGTH} Zeichen.`}
+            >
+              <Input
+                id="password"
+                type="password"
+                autoComplete="new-password"
+                value={password}
+                onChange={(e) => {
+                  setPassword(e.target.value)
+                  clearErrors()
+                }}
+                disabled={busy}
+              />
+            </Field>
+            <Field id="passwordConfirm" label="Passwort bestätigen" error={accountErrors.passwordConfirm}>
+              <Input
+                id="passwordConfirm"
+                type="password"
+                autoComplete="new-password"
+                value={passwordConfirm}
+                onChange={(e) => {
+                  setPasswordConfirm(e.target.value)
+                  clearErrors()
+                }}
+                disabled={busy}
+              />
+            </Field>
+          </div>
+
+          <div className="space-y-4">
+            <p className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
+              Deine Firma
+            </p>
+            <CompanyFields
+              values={company}
+              errors={companyErrors}
+              onChange={(next) => {
+                setCompany((prev) => ({ ...prev, ...next }))
+                clearErrors()
+              }}
+              disabled={busy}
+            />
+          </div>
+        </CardContent>
+
+        <CardFooter className="flex flex-col gap-3">
+          <Button type="submit" className="w-full" disabled={busy}>
+            {busy ? "Firma wird eingerichtet…" : "Firma & Konto erstellen"}
+          </Button>
+          <p className="text-center text-sm text-muted-foreground">
+            Bereits ein Konto?{" "}
+            <Link href="/login" className="underline hover:text-foreground">
+              Anmelden
+            </Link>
+          </p>
+        </CardFooter>
+      </form>
+    </AuthShell>
   )
 }

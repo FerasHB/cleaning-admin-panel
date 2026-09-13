@@ -16,11 +16,15 @@ import {
   ChevronRight,
   Inbox,
   Loader,
+  Mail,
+  MailCheck,
   MapPin,
   MessageSquare,
   PauseCircle,
   Phone,
+  PlayCircle,
   Repeat,
+  Send,
   Users,
 } from "lucide-react"
 import { getJobDisplayTime, getRecurringDaysLabel, isJobToday } from "@/lib/jobs/jobSchedule"
@@ -31,6 +35,13 @@ import {
   getExecutableJobsForEmployee,
   type JobWithAssignments,
 } from "@/lib/jobs/jobs.service"
+import {
+  getEmployeeEmailMap,
+  getEmployeeStatus,
+  resendInvite,
+  setEmployeeActive,
+} from "@/lib/employees/employees.service"
+import { formatPhoneForDisplay } from "@/lib/auth/validation"
 
 type Profile = Database["public"]["Tables"]["profiles"]["Row"]
 type Job = JobWithAssignments
@@ -181,6 +192,14 @@ export default function EmployeeDetailPage() {
   const [comments, setComments] = useState<EmployeeComment[]>([])
   const [loading, setLoading] = useState(true)
   const [notFound, setNotFound] = useState(false)
+  const [email, setEmail] = useState<string | null>(null)
+
+  // Aktionen: Einladung erneut senden, (De)aktivieren (wie Mobiles
+  // EmployeeDetailScreen, mit Sicherheitsabfrage vor dem Statuswechsel).
+  const [actionMessage, setActionMessage] = useState<{ tone: "success" | "error"; text: string } | null>(null)
+  const [resending, setResending] = useState(false)
+  const [updatingActive, setUpdatingActive] = useState(false)
+  const [confirmingActiveChange, setConfirmingActiveChange] = useState(false)
 
   useEffect(() => {
     let mounted = true
@@ -189,7 +208,7 @@ export default function EmployeeDetailPage() {
       // Legacy-Zeiger assigned_to — sonst fehlen alle Aufträge, bei denen der
       // Mitarbeiter nicht der erste Zugewiesene ist. Nur ausführbare Arbeit
       // (Einzelaufträge + Termine), wie Mobiles Mitarbeiter-Detail.
-      const [profileRes, jobsResult, commentsRes] = await Promise.all([
+      const [profileRes, jobsResult, commentsRes, emailMap] = await Promise.all([
         supabase.from("profiles").select("*").eq("id", employeeId).single(),
         getExecutableJobsForEmployee(supabase, employeeId).then(
           (data) => ({ data, error: null as unknown }),
@@ -201,6 +220,8 @@ export default function EmployeeDetailPage() {
           .eq("author_id", employeeId)
           .order("created_at", { ascending: false })
           .limit(8),
+        // E-Mail liegt nur in auth.users — RPC get_company_employee_emails.
+        getEmployeeEmailMap(supabase),
       ])
 
       if (!mounted) return
@@ -212,6 +233,7 @@ export default function EmployeeDetailPage() {
       }
 
       setProfile(profileRes.data as Profile)
+      setEmail(emailMap.get(employeeId) ?? null)
       if (jobsResult.error) {
         console.error("Failed to load employee jobs:", jobsResult.error)
       }
@@ -278,6 +300,67 @@ export default function EmployeeDetailPage() {
       : null
 
   const roleLabel = profile.role === "admin" ? "Administrator" : "Mitarbeiter"
+  const isEmployee = profile.role === "employee"
+  const accountActive = profile.is_active !== false
+  const status = getEmployeeStatus({
+    isActive: accountActive,
+    inviteAcceptedAt: profile.invite_accepted_at,
+  })
+  const invitePending = status.variant === "pending"
+  const busy = resending || updatingActive
+
+  // Einladung erneut senden — nur solange sie noch nicht angenommen wurde
+  // (serverseitig in resend-invite zusätzlich abgesichert).
+  const handleResendInvite = async () => {
+    if (busy) return
+    setActionMessage(null)
+    setResending(true)
+    try {
+      const mode = await resendInvite(supabase, profile.id)
+      setActionMessage({
+        tone: "success",
+        text:
+          mode === "recovery"
+            ? `${profile.full_name} hat einen Link zum Passwort-Setzen erhalten.`
+            : `${profile.full_name} hat eine neue Einladungs-E-Mail erhalten.`,
+      })
+      if (mode === "invite") {
+        // invited_at wird von der Function aktualisiert.
+        setProfile({ ...profile, invited_at: new Date().toISOString() })
+      }
+    } catch (err) {
+      setActionMessage({
+        tone: "error",
+        text: err instanceof Error ? err.message : "Einladung konnte nicht erneut verschickt werden.",
+      })
+    } finally {
+      setResending(false)
+    }
+  }
+
+  // Deaktivieren/Reaktivieren nach Bestätigung. Kein Löschen: Aufträge,
+  // Zuweisungen und Kommentare bleiben erhalten.
+  const applyActiveChange = async () => {
+    const nextActive = !accountActive
+    setConfirmingActiveChange(false)
+    setActionMessage(null)
+    setUpdatingActive(true)
+    try {
+      await setEmployeeActive(supabase, profile.id, nextActive)
+      setProfile({ ...profile, is_active: nextActive, expo_push_token: nextActive ? profile.expo_push_token : null })
+      setActionMessage({
+        tone: "success",
+        text: nextActive ? "Mitarbeiter wurde reaktiviert." : "Mitarbeiter wurde deaktiviert.",
+      })
+    } catch (err) {
+      setActionMessage({
+        tone: "error",
+        text: err instanceof Error ? err.message : "Status konnte nicht geändert werden.",
+      })
+    } finally {
+      setUpdatingActive(false)
+    }
+  }
 
   return (
     <div className="space-y-5">
@@ -303,7 +386,13 @@ export default function EmployeeDetailPage() {
                 {profile.full_name}
               </h1>
               <Badge variant="info">{roleLabel}</Badge>
-              {profile.is_active ? (
+              {/* Einladungs-/Kontostatus wie Mobile: Eingeladen / Aktiv / Inaktiv */}
+              {status.variant === "pending" ? (
+                <Badge variant="warning" className="gap-1">
+                  <Mail className="h-3 w-3" />
+                  Eingeladen
+                </Badge>
+              ) : status.variant === "active" ? (
                 <Badge variant="success" className="gap-1">
                   <CheckCircle2 className="h-3 w-3" />
                   Aktiv
@@ -314,14 +403,36 @@ export default function EmployeeDetailPage() {
                   Inaktiv
                 </Badge>
               )}
+              {/* Eingeladen UND deaktiviert: Konto-Sperre zusätzlich sichtbar */}
+              {invitePending && !accountActive && (
+                <Badge variant="secondary" className="gap-1">
+                  <PauseCircle className="h-3 w-3" />
+                  Inaktiv
+                </Badge>
+              )}
             </div>
             <div className="mt-1.5 flex flex-wrap items-center gap-x-3 gap-y-1 text-sm text-muted-foreground">
+              <span className="flex items-center gap-1.5">
+                <Mail className="h-3.5 w-3.5 shrink-0" />
+                {email ?? "E-Mail nicht verfügbar"}
+              </span>
               {profile.phone && (
                 <span className="flex items-center gap-1.5">
                   <Phone className="h-3.5 w-3.5 shrink-0" />
-                  {profile.phone}
+                  {formatPhoneForDisplay(profile.phone)}
                 </span>
               )}
+              {profile.invite_accepted_at ? (
+                <span className="flex items-center gap-1.5">
+                  <MailCheck className="h-3.5 w-3.5 shrink-0" />
+                  Einladung angenommen am {formatDate(profile.invite_accepted_at)}
+                </span>
+              ) : profile.invited_at ? (
+                <span className="flex items-center gap-1.5">
+                  <Send className="h-3.5 w-3.5 shrink-0" />
+                  Eingeladen am {formatDate(profile.invited_at)}
+                </span>
+              ) : null}
               <span className="flex items-center gap-1.5">
                 <Users className="h-3.5 w-3.5 shrink-0" />
                 Mitarbeiter seit {formatDate(profile.created_at)}
@@ -335,7 +446,90 @@ export default function EmployeeDetailPage() {
             </div>
           </div>
         </div>
+
+        {isEmployee && (
+          <div className="flex shrink-0 flex-wrap gap-2">
+            {invitePending && (
+              <Button variant="outline" onClick={handleResendInvite} disabled={busy}>
+                <Send className="mr-2 h-4 w-4" />
+                {resending ? "Wird gesendet…" : "Einladung erneut senden"}
+              </Button>
+            )}
+            <Button
+              variant={accountActive ? "outline" : "default"}
+              onClick={() => {
+                setActionMessage(null)
+                setConfirmingActiveChange(true)
+              }}
+              disabled={busy || confirmingActiveChange}
+              className={accountActive ? "text-destructive hover:text-destructive" : undefined}
+            >
+              {accountActive ? (
+                <PauseCircle className="mr-2 h-4 w-4" />
+              ) : (
+                <PlayCircle className="mr-2 h-4 w-4" />
+              )}
+              {updatingActive
+                ? "Wird gespeichert…"
+                : accountActive
+                  ? "Deaktivieren"
+                  : "Reaktivieren"}
+            </Button>
+          </div>
+        )}
       </div>
+
+      {/* ── Sicherheitsabfrage (De)aktivieren ── */}
+      {confirmingActiveChange && (
+        <div
+          role="alertdialog"
+          aria-labelledby="active-change-title"
+          className={cn(
+            "rounded-xl border p-4",
+            accountActive ? "border-destructive/30 bg-destructive/5" : "border-primary/20 bg-primary/5",
+          )}
+        >
+          <p id="active-change-title" className="text-sm font-semibold text-foreground">
+            {accountActive ? "Mitarbeiter deaktivieren?" : "Mitarbeiter reaktivieren?"}
+          </p>
+          <p className="mt-1 text-sm text-muted-foreground">
+            {accountActive
+              ? `${profile.full_name} wird deaktiviert, verliert den Zugang zur App und kann keinen neuen Aufträgen mehr zugewiesen werden. Bestehende Aufträge, Zuweisungen und Verlauf bleiben unverändert erhalten.`
+              : `${profile.full_name} wird wieder aktiv und kann erneut Aufträgen zugewiesen werden.`}
+          </p>
+          <div className="mt-3 flex gap-2">
+            <Button
+              size="sm"
+              variant={accountActive ? "destructive" : "default"}
+              onClick={applyActiveChange}
+              disabled={updatingActive}
+            >
+              {accountActive ? "Deaktivieren" : "Reaktivieren"}
+            </Button>
+            <Button
+              size="sm"
+              variant="outline"
+              onClick={() => setConfirmingActiveChange(false)}
+              disabled={updatingActive}
+            >
+              Abbrechen
+            </Button>
+          </div>
+        </div>
+      )}
+
+      {actionMessage && (
+        <div
+          role={actionMessage.tone === "error" ? "alert" : "status"}
+          className={
+            actionMessage.tone === "error"
+              ? "rounded-md bg-destructive/10 p-3 text-sm font-medium text-destructive"
+              : "rounded-md border border-emerald-200 bg-emerald-50 p-3 text-sm font-medium text-emerald-800"
+          }
+        >
+          {actionMessage.text}
+        </div>
+      )}
 
       {/* ── Job-Statistik ── */}
       <div className="grid grid-cols-2 gap-4 lg:grid-cols-4">
