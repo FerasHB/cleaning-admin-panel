@@ -2,6 +2,13 @@ import { createServerClient } from "@supabase/ssr"
 import { NextResponse, type NextRequest } from "next/server"
 import { Database } from "./database.types"
 import { classifyClientKey } from "./keyGuard"
+import {
+  decideRoute,
+  isRecoverySession,
+  RECOVERY_COOKIE,
+  resolveAuthState,
+  type ProfileSnapshot,
+} from "@/lib/auth/authState"
 
 // Same fail-closed guard as lib/supabase/client.ts and server.ts: the proxy
 // runs on every request, so a misconfigured secret key here would be the
@@ -49,57 +56,57 @@ export async function updateSession(request: NextRequest) {
     }
   )
 
-  const {
-    data: { user },
-  } = await supabase.auth.getUser()
+  // getClaims() verifiziert das JWT (und frischt die Sitzung bei Bedarf auf).
+  const { data: claimsData } = await supabase.auth.getClaims()
+  const claims = claimsData?.claims ?? null
+  const userId = typeof claims?.sub === "string" ? claims.sub : null
 
-  const pathname = request.nextUrl.pathname
-  const isAuthPage = pathname.startsWith("/login") || pathname.startsWith("/register")
-  const isProtectedPage =
-    pathname.startsWith("/dashboard") ||
-    pathname.startsWith("/jobs") ||
-    pathname.startsWith("/employees") ||
-    pathname.startsWith("/messages") ||
-    pathname.startsWith("/settings")
+  const markerValue = request.cookies.get(RECOVERY_COOKIE)?.value
+  const isRecovery = isRecoverySession(claims, markerValue)
 
-  if (!user && isProtectedPage) {
-    return NextResponse.redirect(new URL("/login", request.url))
-  }
-
-  if (user) {
-    const { data: profile } = await supabase
+  let profile: ProfileSnapshot | null = null
+  let profileLoadFailed = false
+  if (userId && !isRecovery) {
+    // Eigenes Profil ist über "employee read own profile" (id = auth.uid())
+    // lesbar — auch für deaktivierte Konten, deshalb ist is_active hier sichtbar.
+    const { data, error } = await supabase
       .from("profiles")
-      .select("role, company_id")
-      .eq("id", user.id)
-      .single()
-
-    // Non-admin or missing profile: block access and sign out
-    if (profile?.role !== "admin" && isProtectedPage) {
-      await supabase.auth.signOut()
-      return NextResponse.redirect(new URL("/login?error=access_denied", request.url))
-    }
-
-    // Admin with no company_id: setup did not complete — send to register
-    // so they can complete company creation. Exempt /register itself to avoid a loop.
-    if (
-      profile?.role === "admin" &&
-      !profile.company_id &&
-      isProtectedPage
-    ) {
-      return NextResponse.redirect(new URL("/register?incomplete=true", request.url))
-    }
-
-    // Authenticated users should not see login or register pages —
-    // EXCEPT an admin with no company_id is allowed to stay on /register
-    // so they can complete company setup (the ?incomplete=true recovery path).
-    const isCompanySetupPage =
-      pathname.startsWith("/register") &&
-      profile?.role === "admin" &&
-      !profile.company_id
-    if (isAuthPage && !isCompanySetupPage) {
-      return NextResponse.redirect(new URL("/dashboard", request.url))
-    }
+      .select("role, company_id, is_active")
+      .eq("id", userId)
+      .maybeSingle()
+    if (error) profileLoadFailed = true
+    profile = data
   }
 
-  return supabaseResponse
+  const state = resolveAuthState({
+    hasUser: !!userId,
+    isRecovery,
+    profile,
+    profileLoadFailed,
+  })
+
+  const decision = decideRoute(request.nextUrl.pathname, state)
+
+  // Veralteter Marker (keine passende Recovery-Sitzung mehr) wird entfernt.
+  const clearStaleMarker = !!markerValue && !isRecovery
+
+  if (decision.action === "next") {
+    if (clearStaleMarker) supabaseResponse.cookies.delete(RECOVERY_COOKIE)
+    return supabaseResponse
+  }
+
+  if (decision.signOut) {
+    // Nur diese Sitzung beenden (scope "local"); setAll schreibt die
+    // gelöschten Auth-Cookies in supabaseResponse.
+    await supabase.auth.signOut({ scope: "local" })
+  }
+
+  const redirect = NextResponse.redirect(new URL(decision.to, request.url))
+  // Aufgefrischte bzw. gelöschte Auth-Cookies MÜSSEN mit der Weiterleitung
+  // mitgehen — sonst bliebe ein Sign-out wirkungslos (Redirect-Schleife).
+  supabaseResponse.cookies.getAll().forEach((cookie) => {
+    redirect.cookies.set(cookie)
+  })
+  if (clearStaleMarker || decision.signOut) redirect.cookies.delete(RECOVERY_COOKIE)
+  return redirect
 }

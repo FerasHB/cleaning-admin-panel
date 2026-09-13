@@ -17,40 +17,47 @@ import { Badge } from "@/components/ui/badge";
 import { SectionCard } from "@/components/dashboard/SectionCard";
 import { StatCard } from "@/components/dashboard/StatCard";
 import { Users, Plus, X, Activity, Inbox, ChevronRight } from "lucide-react";
-import { Database } from "@/lib/supabase/database.types";
 import {
   getAssignmentStatsByEmployee,
   type EmployeeJobStats,
 } from "@/lib/jobs/jobs.service";
+import {
+  createEmployee,
+  getCompanyEmployees,
+  getEmployeeStatus,
+  type CompanyEmployee,
+} from "@/lib/employees/employees.service";
+import { formatPhoneForDisplay, isValidEmail, isValidPhone, normalizeEmail } from "@/lib/auth/validation";
 
-type Profile = Database["public"]["Tables"]["profiles"]["Row"];
 type EmployeeStats = EmployeeJobStats;
 
-function generatePassword(): string {
-  const chars = "abcdefghijkmnpqrstuvwxyzABCDEFGHJKLMNPQRSTUVWXYZ23456789!@#";
-  return Array.from(
-    { length: 12 },
-    () => chars[Math.floor(Math.random() * chars.length)],
-  ).join("");
-}
+type InviteErrors = { fullName?: string; email?: string; phone?: string };
+
+const STATUS_BADGE: Record<string, "warning" | "success" | "secondary"> = {
+  pending: "warning",
+  active: "success",
+  inactive: "secondary",
+};
 
 export default function EmployeesPage() {
   // Client einmalig halten → stabile Referenz für die Effect-Dependencies.
   const [supabase] = useState(() => createClient());
 
-  const [employees, setEmployees] = useState<Profile[]>([]);
+  const [employees, setEmployees] = useState<CompanyEmployee[]>([]);
   const [statsMap, setStatsMap] = useState<Map<string, EmployeeStats>>(
     new Map(),
   );
   const [loading, setLoading] = useState(true);
-  // Manueller Refetch-Trigger (z. B. nach dem Anlegen) ohne setState im Effect.
+  const [loadError, setLoadError] = useState<string | null>(null);
+  // Manueller Refetch-Trigger (z. B. nach dem Einladen) ohne setState im Effect.
   const [reloadKey, setReloadKey] = useState(0);
 
-  // Form state
+  // Einladungs-Formular (invite-basiert wie Mobile: kein Passwort)
   const [showForm, setShowForm] = useState(false);
   const [fullName, setFullName] = useState("");
   const [email, setEmail] = useState("");
-  const [password, setPassword] = useState("");
+  const [phone, setPhone] = useState("");
+  const [inviteErrors, setInviteErrors] = useState<InviteErrors>({});
   const [formBusy, setFormBusy] = useState(false);
   const [formError, setFormError] = useState<string | null>(null);
   const [formSuccess, setFormSuccess] = useState<string | null>(null);
@@ -65,12 +72,14 @@ export default function EmployeesPage() {
       // Zähler aus der Zuweisungsmenge (job_assignments) — ein Auftrag mit
       // mehreren Mitarbeitern zählt bei JEDEM von ihnen, nicht nur beim
       // Legacy-Primär jobs.assigned_to.
-      const [{ data: empData }, statsResult] = await Promise.all([
-        supabase
-          .from("profiles")
-          .select("*")
-          .eq("role", "employee")
-          .order("full_name", { ascending: true }),
+      const [employeesResult, statsResult] = await Promise.all([
+        getCompanyEmployees(supabase).then(
+          (data) => ({ data, error: null as string | null }),
+          (err: unknown) => {
+            console.error("Failed to load employees:", err);
+            return { data: [] as CompanyEmployee[], error: "Mitarbeiter konnten nicht geladen werden." };
+          },
+        ),
         getAssignmentStatsByEmployee(supabase).catch((err) => {
           console.error("Failed to load assignment stats:", err);
           return new Map<string, EmployeeStats>();
@@ -79,7 +88,8 @@ export default function EmployeesPage() {
 
       if (!mounted) return;
 
-      setEmployees((empData as Profile[]) ?? []);
+      setEmployees(employeesResult.data);
+      setLoadError(employeesResult.error);
       setStatsMap(statsResult);
       setLoading(false);
     };
@@ -93,7 +103,8 @@ export default function EmployeesPage() {
   const openForm = () => {
     setFullName("");
     setEmail("");
-    setPassword(generatePassword());
+    setPhone("");
+    setInviteErrors({});
     setFormError(null);
     setFormSuccess(null);
     setShowForm(true);
@@ -105,53 +116,42 @@ export default function EmployeesPage() {
     setFormSuccess(null);
   };
 
-  const handleCreateEmployee = async (e: React.FormEvent) => {
+  // Validierung wie Mobile (Name + E-Mail Pflicht, Telefon optional/E.164).
+  const validateInvite = () => {
+    const next: InviteErrors = {};
+    if (!fullName.trim()) next.fullName = "Name ist erforderlich.";
+    if (!email.trim()) next.email = "E-Mail ist erforderlich.";
+    else if (!isValidEmail(email)) next.email = "Bitte gib eine gültige E-Mail-Adresse ein.";
+    if (phone.trim() && !isValidPhone(phone)) next.phone = "Bitte gib eine gültige Telefonnummer ein.";
+    setInviteErrors(next);
+    return Object.keys(next).length === 0;
+  };
+
+  const handleInvite = async (e: React.FormEvent) => {
     e.preventDefault();
-    setFormBusy(true);
     setFormError(null);
     setFormSuccess(null);
+    if (!validateInvite()) return;
 
-    // Get the current session JWT to pass to the Edge Function
-    const {
-      data: { session },
-    } = await supabase.auth.getSession();
-    if (!session) {
-      setFormError("Ihre Sitzung ist abgelaufen. Bitte melden Sie sich erneut an.");
+    setFormBusy(true);
+    try {
+      const created = await createEmployee(supabase, {
+        fullName: fullName.trim(),
+        email: normalizeEmail(email),
+        phone: phone.trim() || null,
+      });
+      setFormSuccess(
+        `${created.fullName} wurde eingeladen. Die Einladung wurde an ${created.email} gesendet.`,
+      );
+      setFullName("");
+      setEmail("");
+      setPhone("");
+      setReloadKey((k) => k + 1);
+    } catch (err) {
+      setFormError(err instanceof Error ? err.message : "Einladung konnte nicht verschickt werden.");
+    } finally {
       setFormBusy(false);
-      return;
     }
-
-    const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!;
-    const res = await fetch(`${supabaseUrl}/functions/v1/create-employee`, {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        Authorization: `Bearer ${session.access_token}`,
-      },
-      body: JSON.stringify({
-        full_name: fullName.trim(),
-        email: email.trim().toLowerCase(),
-        password,
-      }),
-    });
-
-    const result = await res.json();
-
-    if (!res.ok) {
-      setFormError(result.error ?? "Mitarbeiter konnte nicht erstellt werden.");
-      setFormBusy(false);
-      return;
-    }
-
-    setFormSuccess(`${result.full_name} wurde erfolgreich hinzugefügt.`);
-    setFormBusy(false);
-    setReloadKey((k) => k + 1);
-
-    // Auto-close form after a short delay so the admin sees the success message
-    setTimeout(() => {
-      setShowForm(false);
-      setFormSuccess(null);
-    }, 2000);
   };
 
   // ── Summary metrics — derived from already-loaded data, no new queries ──
@@ -162,6 +162,7 @@ export default function EmployeesPage() {
     (sum, s) => sum + s.open,
     0,
   );
+  const pendingInvites = employees.filter((e) => !e.inviteAcceptedAt).length;
 
   return (
     <div className="space-y-5">
@@ -178,7 +179,7 @@ export default function EmployeesPage() {
         </div>
         <Button onClick={openForm}>
           <Plus className="mr-2 h-4 w-4" />
-          Mitarbeiter hinzufügen
+          Mitarbeiter einladen
         </Button>
       </div>
 
@@ -188,7 +189,7 @@ export default function EmployeesPage() {
           icon={Users}
           label="Mitarbeiter gesamt"
           value={loading ? "—" : employees.length}
-          hint="Teammitglieder"
+          hint={loading ? "Teammitglieder" : `${pendingInvites} Einladung${pendingInvites === 1 ? "" : "en"} offen`}
           tone="primary"
         />
         <StatCard
@@ -207,15 +208,17 @@ export default function EmployeesPage() {
         />
       </div>
 
-      {/* ── Add Employee Form ── */}
+      {/* ── Einladungs-Formular ── */}
       {showForm && (
         <SectionCard
           icon={Plus}
-          title="Neuen Mitarbeiter hinzufügen"
+          title="Mitarbeiter einladen"
+          subtitle="Der Mitarbeiter erhält eine E-Mail und legt sein Passwort in der TaskOps-App selbst fest."
           action={
             <Button
               variant="ghost"
               size="icon"
+              aria-label="Formular schließen"
               onClick={closeForm}
               disabled={formBusy}
             >
@@ -224,15 +227,15 @@ export default function EmployeesPage() {
           }
           noBodyPadding
         >
-          <form onSubmit={handleCreateEmployee}>
+          <form onSubmit={handleInvite} noValidate>
             <div className="space-y-4 p-5">
               {formError && (
-                <div className="rounded-md bg-destructive/10 p-3 text-sm font-medium text-destructive">
+                <div role="alert" className="rounded-md bg-destructive/10 p-3 text-sm font-medium text-destructive">
                   {formError}
                 </div>
               )}
               {formSuccess && (
-                <div className="rounded-md border border-emerald-200 bg-emerald-50 p-3 text-sm font-medium text-emerald-800">
+                <div role="status" className="rounded-md border border-emerald-200 bg-emerald-50 p-3 text-sm font-medium text-emerald-800">
                   {formSuccess}
                 </div>
               )}
@@ -246,11 +249,16 @@ export default function EmployeesPage() {
                     id="emp-name"
                     type="text"
                     placeholder="Jane Smith"
-                    required
                     value={fullName}
-                    onChange={(e) => setFullName(e.target.value)}
+                    onChange={(e) => {
+                      setFullName(e.target.value);
+                      setInviteErrors({});
+                    }}
                     disabled={formBusy}
                   />
+                  {inviteErrors.fullName && (
+                    <p className="text-xs font-medium text-destructive">{inviteErrors.fullName}</p>
+                  )}
                 </div>
 
                 <div className="space-y-2">
@@ -260,42 +268,38 @@ export default function EmployeesPage() {
                   <Input
                     id="emp-email"
                     type="email"
-                    placeholder="employee@company.com"
-                    required
+                    placeholder="mitarbeiter@firma.de"
                     value={email}
-                    onChange={(e) => setEmail(e.target.value)}
+                    onChange={(e) => {
+                      setEmail(e.target.value);
+                      setInviteErrors({});
+                    }}
                     disabled={formBusy}
                   />
+                  {inviteErrors.email && (
+                    <p className="text-xs font-medium text-destructive">{inviteErrors.email}</p>
+                  )}
                 </div>
 
                 <div className="space-y-2 sm:col-span-2">
-                  <label className="text-sm font-medium" htmlFor="emp-password">
-                    Temporäres Passwort
+                  <label className="text-sm font-medium" htmlFor="emp-phone">
+                    Telefon <span className="font-normal text-muted-foreground">(optional)</span>
                   </label>
-                  <div className="flex gap-2">
-                    <Input
-                      id="emp-password"
-                      type="text"
-                      required
-                      minLength={8}
-                      value={password}
-                      onChange={(e) => setPassword(e.target.value)}
-                      disabled={formBusy}
-                      className="font-mono"
-                    />
-                    <Button
-                      type="button"
-                      variant="outline"
-                      onClick={() => setPassword(generatePassword())}
-                      disabled={formBusy}
-                    >
-                      Generieren
-                    </Button>
-                  </div>
-                  <p className="text-xs text-muted-foreground">
-                    Dieses Passwort an den Mitarbeiter weitergeben. Es kann nach der
-                    ersten Anmeldung geändert werden.
-                  </p>
+                  <Input
+                    id="emp-phone"
+                    type="tel"
+                    placeholder="0170 1234567"
+                    value={phone}
+                    onChange={(e) => {
+                      setPhone(e.target.value);
+                      setInviteErrors({});
+                    }}
+                    disabled={formBusy}
+                    className="sm:max-w-xs"
+                  />
+                  {inviteErrors.phone && (
+                    <p className="text-xs font-medium text-destructive">{inviteErrors.phone}</p>
+                  )}
                 </div>
               </div>
             </div>
@@ -307,14 +311,20 @@ export default function EmployeesPage() {
                 onClick={closeForm}
                 disabled={formBusy}
               >
-                Abbrechen
+                Schließen
               </Button>
               <Button type="submit" disabled={formBusy}>
-                {formBusy ? "Wird erstellt…" : "Mitarbeiter hinzufügen"}
+                {formBusy ? "Einladung wird gesendet…" : "Einladung senden"}
               </Button>
             </div>
           </form>
         </SectionCard>
+      )}
+
+      {loadError && (
+        <div role="alert" className="rounded-md bg-destructive/10 p-3 text-sm font-medium text-destructive">
+          {loadError}
+        </div>
       )}
 
       {/* ── Employee Table ── */}
@@ -332,7 +342,8 @@ export default function EmployeesPage() {
           <TableHeader>
             <TableRow className="border-gray-100 hover:bg-transparent">
               <TableHead className="pl-5 text-xs font-medium uppercase tracking-wide text-muted-foreground">Name</TableHead>
-              <TableHead className="hidden text-xs font-medium uppercase tracking-wide text-muted-foreground sm:table-cell">Rolle</TableHead>
+              <TableHead className="hidden text-xs font-medium uppercase tracking-wide text-muted-foreground sm:table-cell">Status</TableHead>
+              <TableHead className="hidden text-xs font-medium uppercase tracking-wide text-muted-foreground lg:table-cell">Telefon</TableHead>
               <TableHead className="text-center text-xs font-medium uppercase tracking-wide text-muted-foreground">Offen</TableHead>
               <TableHead className="text-center text-xs font-medium uppercase tracking-wide text-muted-foreground">In Arbeit</TableHead>
               <TableHead className="text-center text-xs font-medium uppercase tracking-wide text-muted-foreground">Erledigt</TableHead>
@@ -344,7 +355,7 @@ export default function EmployeesPage() {
             {loading ? (
               <TableRow className="border-gray-100 hover:bg-transparent">
                 <TableCell
-                  colSpan={7}
+                  colSpan={8}
                   className="h-32 text-center text-sm text-muted-foreground"
                 >
                   Mitarbeiter werden geladen…
@@ -352,7 +363,7 @@ export default function EmployeesPage() {
               </TableRow>
             ) : employees.length === 0 ? (
               <TableRow className="border-b-0 hover:bg-transparent">
-                <TableCell colSpan={7} className="border-b-0 p-0">
+                <TableCell colSpan={8} className="border-b-0 p-0">
                   <div className="flex flex-col items-center justify-center gap-3 py-16 text-center">
                     <div className="flex h-10 w-10 items-center justify-center rounded-full bg-secondary">
                       <Users className="h-5 w-5 text-muted-foreground" />
@@ -360,11 +371,11 @@ export default function EmployeesPage() {
                     <div>
                       <p className="text-sm font-medium">Noch keine Mitarbeiter</p>
                       <p className="mt-0.5 text-xs text-muted-foreground">
-                        Fügen Sie Ihr erstes Teammitglied hinzu, um zu beginnen.
+                        Lade dein erstes Teammitglied ein, um zu beginnen.
                       </p>
                     </div>
                     <Button size="sm" onClick={openForm}>
-                      Mitarbeiter hinzufügen
+                      Mitarbeiter einladen
                     </Button>
                   </div>
                 </TableCell>
@@ -377,8 +388,9 @@ export default function EmployeesPage() {
                   in_progress: 0,
                   completed: 0,
                 };
-                const isActive = stats.in_progress > 0;
-                const initials = (emp.full_name ?? "?")
+                const working = stats.in_progress > 0;
+                const status = getEmployeeStatus(emp);
+                const initials = (emp.fullName ?? "?")
                   .split(" ")
                   .map((n) => n[0])
                   .slice(0, 2)
@@ -387,24 +399,27 @@ export default function EmployeesPage() {
                 return (
                   <TableRow
                     key={emp.id}
-                    className="group cursor-pointer border-gray-100 transition-colors hover:bg-gray-50/70"
+                    className="group border-gray-100 transition-colors hover:bg-gray-50/70"
                   >
-                    {/* Name + Active Now indicator */}
+                    {/* Name + E-Mail + Active Now indicator */}
                     <TableCell className="py-3.5 pl-5">
                       <Link href={`/employees/${emp.id}`} className="flex items-center gap-3">
                         <div className="relative shrink-0">
                           <div className="flex h-8 w-8 items-center justify-center rounded-full bg-primary/10 text-xs font-semibold text-primary">
                             {initials}
                           </div>
-                          {isActive && (
+                          {working && (
                             <span className="absolute -bottom-0.5 -right-0.5 flex h-2.5 w-2.5 items-center justify-center rounded-full border-2 border-card bg-blue-500" />
                           )}
                         </div>
-                        <div>
+                        <div className="min-w-0">
                           <p className="text-sm font-medium leading-tight">
-                            {emp.full_name}
+                            {emp.fullName}
                           </p>
-                          {isActive && (
+                          <p className="truncate text-xs text-muted-foreground">
+                            {emp.email ?? "E-Mail nicht verfügbar"}
+                          </p>
+                          {working && (
                             <p className="text-[11px] font-medium text-blue-600">
                               Gerade aktiv
                             </p>
@@ -413,9 +428,16 @@ export default function EmployeesPage() {
                       </Link>
                     </TableCell>
 
-                    {/* Email — not in profiles schema; show role as badge instead */}
+                    {/* Einladungs-/Kontostatus */}
                     <TableCell className="hidden py-3.5 sm:table-cell">
-                      <Badge variant="secondary">Mitarbeiter</Badge>
+                      <Badge variant={STATUS_BADGE[status.variant]}>{status.label}</Badge>
+                    </TableCell>
+
+                    {/* Telefon */}
+                    <TableCell className="hidden py-3.5 text-sm text-muted-foreground lg:table-cell">
+                      {emp.phone ? formatPhoneForDisplay(emp.phone) : (
+                        <span className="text-xs text-muted-foreground/50">—</span>
+                      )}
                     </TableCell>
 
                     {/* Open */}
@@ -456,7 +478,7 @@ export default function EmployeesPage() {
 
                     {/* Chevron */}
                     <TableCell className="py-3.5 pr-5 text-right">
-                      <Link href={`/employees/${emp.id}`} className="inline-flex">
+                      <Link href={`/employees/${emp.id}`} className="inline-flex" aria-label={`${emp.fullName} öffnen`}>
                         <ChevronRight className="h-4 w-4 text-muted-foreground/40 transition-colors group-hover:text-muted-foreground" />
                       </Link>
                     </TableCell>
