@@ -3,70 +3,56 @@
 // components/jobs/JobScheduleFields.tsx
 // Terminierungs-Felder für das Job-Formular (Anlegen + Bearbeiten).
 // Spiegel von Mobiles JobFormFields: Auftragstyp-Umschalter (Einmalig/
-// Wiederkehrend), single = Datum+Uhrzeit, recurring = Wochentage+Uhrzeit+Aktiv.
-// Kontrollierte Komponente: hält keinen eigenen State, alles über value/onChange.
+// Wiederkehrend), single = Datum+Uhrzeit, recurring = Wochentage + Uhrzeit +
+// Gültigkeitszeitraum (Start Pflicht, Ende optional) + Aktiv.
+// Kontrollierte Komponente: hält keinen eigenen State.
 
 import { Input } from "@/components/ui/input"
 import { cn } from "@/lib/utils"
 import { WEEKDAYS, type WeekdayKey } from "@/lib/recurrence"
-
-export type JobScheduleValue = {
-  jobType: "single" | "recurring"
-  // single: Wert eines <input type="datetime-local"> ("YYYY-MM-DDTHH:mm")
-  dateTimeLocal: string
-  // recurring: ausgewählte Wochentage
-  recurringDays: WeekdayKey[]
-  // recurring: Wert eines <input type="time"> ("HH:mm")
-  time: string
-  // recurring: aktiv/inaktiv
-  isActive: boolean
-}
-
-export type JobScheduleErrors = {
-  dateTimeLocal?: string
-  recurringDays?: string
-  time?: string
-}
+import type { JobFormErrors, JobFormValues } from "@/lib/jobs/jobForm"
 
 type Props = {
-  value: JobScheduleValue
-  onChange: (patch: Partial<JobScheduleValue>) => void
-  errors?: JobScheduleErrors
+  values: JobFormValues
+  onChange: (patch: Partial<JobFormValues>) => void
+  errors?: JobFormErrors
   disabled?: boolean
 }
 
-const JOB_TYPE_OPTIONS: { key: JobScheduleValue["jobType"]; label: string }[] = [
+const JOB_TYPE_OPTIONS: { key: JobFormValues["jobType"]; label: string }[] = [
   { key: "single", label: "Einmalig" },
   { key: "recurring", label: "Wiederkehrend" },
 ]
 
-export function JobScheduleFields({
-  value,
-  onChange,
-  errors,
-  disabled = false,
-}: Props) {
+function FieldError({ message }: { message?: string }) {
+  if (!message) return null
+  return <p className="text-xs font-medium text-destructive">{message}</p>
+}
+
+export function JobScheduleFields({ values, onChange, errors, disabled = false }: Props) {
   const toggleWeekday = (key: WeekdayKey) => {
-    const selected = value.recurringDays.includes(key)
-    const next = selected
-      ? value.recurringDays.filter((d) => d !== key)
-      : [...value.recurringDays, key]
-    onChange({ recurringDays: next })
+    const selected = values.recurringDays.includes(key)
+    onChange({
+      recurringDays: selected
+        ? values.recurringDays.filter((d) => d !== key)
+        : [...values.recurringDays, key],
+    })
   }
 
   return (
     <div className="space-y-4">
       {/* ── Auftragstyp (Segmented Control) ── */}
       <div className="space-y-2">
-        <label className="text-sm font-medium">Auftragstyp</label>
+        <span className="text-sm font-medium">Auftragstyp</span>
         <div className="inline-flex w-full rounded-md border border-input bg-secondary p-0.5 sm:w-auto">
           {JOB_TYPE_OPTIONS.map((opt) => {
-            const active = value.jobType === opt.key
+            const active = values.jobType === opt.key
             return (
               <button
                 key={opt.key}
                 type="button"
                 disabled={disabled}
+                aria-pressed={active}
                 onClick={() => onChange({ jobType: opt.key })}
                 className={cn(
                   "flex-1 rounded px-4 py-1.5 text-sm font-medium transition-colors sm:flex-none sm:px-6",
@@ -82,8 +68,8 @@ export function JobScheduleFields({
         </div>
       </div>
 
-      {/* ── Einmalig: Datum + Uhrzeit ── */}
-      {value.jobType === "single" ? (
+      {values.jobType === "single" ? (
+        /* ── Einmalig: Datum + Uhrzeit ── */
         <div className="space-y-2">
           <label className="text-sm font-medium" htmlFor="job-datetime">
             Datum &amp; Uhrzeit
@@ -91,24 +77,20 @@ export function JobScheduleFields({
           <Input
             id="job-datetime"
             type="datetime-local"
-            value={value.dateTimeLocal}
+            value={values.dateTimeLocal}
             onChange={(e) => onChange({ dateTimeLocal: e.target.value })}
             disabled={disabled}
           />
-          {errors?.dateTimeLocal && (
-            <p className="text-xs font-medium text-destructive">
-              {errors.dateTimeLocal}
-            </p>
-          )}
+          <FieldError message={errors?.dateTimeLocal} />
         </div>
       ) : (
-        /* ── Wiederkehrend: Wochentage + Uhrzeit + Aktiv ── */
+        /* ── Wiederkehrend ── */
         <div className="space-y-4">
           <div className="space-y-2">
-            <label className="text-sm font-medium">Wochentage</label>
+            <span className="text-sm font-medium">Wochentage</span>
             <div className="flex flex-wrap gap-2">
               {WEEKDAYS.map((w) => {
-                const active = value.recurringDays.includes(w.key)
+                const active = values.recurringDays.includes(w.key)
                 return (
                   <button
                     key={w.key}
@@ -116,6 +98,7 @@ export function JobScheduleFields({
                     disabled={disabled}
                     onClick={() => toggleWeekday(w.key)}
                     aria-pressed={active}
+                    aria-label={w.label}
                     className={cn(
                       "min-w-[44px] rounded-full border px-3 py-1.5 text-sm font-medium transition-colors",
                       active
@@ -128,11 +111,7 @@ export function JobScheduleFields({
                 )
               })}
             </div>
-            {errors?.recurringDays && (
-              <p className="text-xs font-medium text-destructive">
-                {errors.recurringDays}
-              </p>
-            )}
+            <FieldError message={errors?.recurringDays} />
           </div>
 
           <div className="space-y-2">
@@ -142,22 +121,48 @@ export function JobScheduleFields({
             <Input
               id="job-time"
               type="time"
-              value={value.time}
+              value={values.time}
               onChange={(e) => onChange({ time: e.target.value })}
               disabled={disabled}
               className="sm:w-[160px]"
             />
-            {errors?.time && (
-              <p className="text-xs font-medium text-destructive">
-                {errors.time}
-              </p>
-            )}
+            <FieldError message={errors?.time} />
+          </div>
+
+          <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+            <div className="space-y-2">
+              <label className="text-sm font-medium" htmlFor="job-recurrence-start">
+                Startdatum
+              </label>
+              <Input
+                id="job-recurrence-start"
+                type="date"
+                value={values.recurrenceStartDate}
+                onChange={(e) => onChange({ recurrenceStartDate: e.target.value })}
+                disabled={disabled}
+              />
+              <FieldError message={errors?.recurrenceStartDate} />
+            </div>
+            <div className="space-y-2">
+              <label className="text-sm font-medium" htmlFor="job-recurrence-end">
+                Enddatum <span className="font-normal text-muted-foreground">(optional)</span>
+              </label>
+              <Input
+                id="job-recurrence-end"
+                type="date"
+                value={values.recurrenceEndDate}
+                min={values.recurrenceStartDate || undefined}
+                onChange={(e) => onChange({ recurrenceEndDate: e.target.value })}
+                disabled={disabled}
+              />
+              <FieldError message={errors?.recurrenceEndDate} />
+            </div>
           </div>
 
           <label className="flex items-start gap-3 rounded-lg border border-input p-3">
             <input
               type="checkbox"
-              checked={value.isActive}
+              checked={values.isActive}
               onChange={(e) => onChange({ isActive: e.target.checked })}
               disabled={disabled}
               className="mt-0.5 h-4 w-4 accent-primary"

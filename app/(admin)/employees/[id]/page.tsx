@@ -27,9 +27,13 @@ import { getJobDisplayTime, getRecurringDaysLabel, isJobToday } from "@/lib/jobs
 import { formatDateTimeDE } from "@/lib/date"
 import { cn } from "@/lib/utils"
 import type { Database } from "@/lib/supabase/database.types"
+import {
+  getExecutableJobsForEmployee,
+  type JobWithAssignments,
+} from "@/lib/jobs/jobs.service"
 
 type Profile = Database["public"]["Tables"]["profiles"]["Row"]
-type Job = Database["public"]["Tables"]["jobs"]["Row"]
+type Job = JobWithAssignments
 
 type CommentRow = {
   id: string
@@ -128,7 +132,7 @@ function JobRowItem({ job }: { job: Job }) {
           ) : (
             <span className="flex items-center gap-1.5 text-xs tabular-nums text-muted-foreground">
               <Calendar className="h-3 w-3" />
-              {formatDate(job.scheduled_start ?? (job.date ? `${job.date}T00:00` : null))}
+              {formatDate(job.date ? `${job.date.slice(0, 10)}T00:00` : job.scheduled_start)}
               {today && (
                 <span className="rounded-full bg-primary/10 px-1.5 py-0.5 text-[10px] font-semibold text-primary">
                   Heute
@@ -181,13 +185,16 @@ export default function EmployeeDetailPage() {
   useEffect(() => {
     let mounted = true
     const load = async () => {
-      const [profileRes, jobsRes, commentsRes] = await Promise.all([
+      // Aufträge über die Zuweisungsmenge (job_assignments), nicht über den
+      // Legacy-Zeiger assigned_to — sonst fehlen alle Aufträge, bei denen der
+      // Mitarbeiter nicht der erste Zugewiesene ist. Nur ausführbare Arbeit
+      // (Einzelaufträge + Termine), wie Mobiles Mitarbeiter-Detail.
+      const [profileRes, jobsResult, commentsRes] = await Promise.all([
         supabase.from("profiles").select("*").eq("id", employeeId).single(),
-        supabase
-          .from("jobs")
-          .select("*")
-          .eq("assigned_to", employeeId)
-          .order("created_at", { ascending: false }),
+        getExecutableJobsForEmployee(supabase, employeeId).then(
+          (data) => ({ data, error: null as unknown }),
+          (error: unknown) => ({ data: [] as Job[], error }),
+        ),
         supabase
           .from("job_comments")
           .select("id, job_id, message, created_at, jobs(customer_name)")
@@ -205,7 +212,10 @@ export default function EmployeeDetailPage() {
       }
 
       setProfile(profileRes.data as Profile)
-      setJobs((jobsRes.data as Job[]) ?? [])
+      if (jobsResult.error) {
+        console.error("Failed to load employee jobs:", jobsResult.error)
+      }
+      setJobs(jobsResult.data)
       setComments(
         ((commentsRes.data ?? []) as unknown as CommentRow[]).map((c) => ({
           id: c.id,

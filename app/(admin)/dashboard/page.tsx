@@ -28,9 +28,13 @@ import {
   isJobToday,
 } from "@/lib/jobs/jobSchedule"
 import { cn } from "@/lib/utils"
-import { Database } from "@/lib/supabase/database.types"
+import {
+  isExecutableJob,
+  isOccurrence,
+  type JobWithAssignments,
+} from "@/lib/jobs/jobs.service"
 
-type Job = Database["public"]["Tables"]["jobs"]["Row"]
+type Job = JobWithAssignments
 
 const STATUS_LABEL: Record<string, string> = {
   open: "Offen",
@@ -74,12 +78,15 @@ function initials(name: string | null) {
 
 export default function DashboardPage() {
   const { jobs, loading: jobsLoading, counts } = useAdminJobs()
-  const recentJobs = jobs.slice(0, 4)
+  // Neueste vom Admin angelegte Aufträge: Einzelaufträge und Dauerauftrags-
+  // Regeln — generierte Termine entstehen gebündelt und würden die Liste
+  // sonst verdrängen.
+  const recentJobs = jobs.filter((j) => !isOccurrence(j)).slice(0, 4)
 
-  // "Heute" recurring-fähig (single per Datum/scheduled_start, recurring per
-  // Wochentag, nur aktive); Sortierung nach Anzeige-Uhrzeit.
+  // "Heute": ausführbare Arbeit mit Datum heute (Einzelaufträge + generierte
+  // Termine). Regeln sind Vorlagen — ihre heutigen Termine sind eigene Zeilen.
   const todaysJobs = jobs
-    .filter((j) => isJobToday(j))
+    .filter((j) => isExecutableJob(j) && isJobToday(j))
     .sort((a, b) =>
       (getJobDisplayTime(a) ?? "").localeCompare(getJobDisplayTime(b) ?? ""),
     )
@@ -130,12 +137,13 @@ export default function DashboardPage() {
     (j) => j.status === "completed",
   ).length
 
-  // "Gerade aktiv": Mitarbeiter mit mindestens einem laufenden Job — abgeleitet
-  // aus den bereits geladenen Jobs (keine zusätzliche Query, keine Fake-Daten).
+  // "Gerade aktiv": Mitarbeiter, die einem laufenden Auftrag zugewiesen sind —
+  // über die volle Zuweisungsmenge (job_assignments), nicht den Legacy-Zeiger.
   const activeNow = new Set(
     jobs
-      .filter((j) => j.status === "in_progress" && j.assigned_to)
-      .map((j) => j.assigned_to),
+      .filter((j) => isExecutableJob(j) && j.status === "in_progress")
+      .flatMap((j) => (j.assignments ?? []).map((a) => a.employee_id))
+      .filter((id): id is string => !!id),
   ).size
 
   const now = new Date()
@@ -286,11 +294,16 @@ export default function DashboardPage() {
                     <span className="hidden text-xs text-muted-foreground sm:block">
                       {job.job_type === "recurring"
                         ? getRecurringDaysLabel(job)
-                        : formatDate(job.scheduled_start)}
+                        : formatDate(job.date ? `${job.date.slice(0, 10)}T00:00` : job.scheduled_start)}
                     </span>
-                    <Badge variant={STATUS_VARIANT[job.status] ?? "outline"}>
-                      {STATUS_LABEL[job.status] ?? job.status}
-                    </Badge>
+                    {/* Regeln haben keinen eigenen Arbeitsstatus. */}
+                    {job.job_type === "recurring" ? (
+                      <Badge variant="secondary">Dauerauftrag</Badge>
+                    ) : (
+                      <Badge variant={STATUS_VARIANT[job.status] ?? "outline"}>
+                        {STATUS_LABEL[job.status] ?? job.status}
+                      </Badge>
+                    )}
                     <ArrowRight className="h-4 w-4 shrink-0 text-muted-foreground/50" />
                   </Link>
                 </li>
