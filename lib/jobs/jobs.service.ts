@@ -221,6 +221,30 @@ export async function getJobOccurrences(
   return (data ?? []) as unknown as JobWithAssignments[]
 }
 
+// Ausführbare Aufträge in einem Datumsfenster (für den Kalender) — wie
+// Mobiles getScheduleOccurrences: job_type='single' schließt Regeln aus
+// (Regeln haben kein date), excludePausedOccurrences blendet pausierte
+// offene Termine aus. from/to: lokale "YYYY-MM-DD" (inklusive).
+export async function getJobsInRange(
+  supabase: DB,
+  fromDateKey: string,
+  toDateKey: string,
+): Promise<JobWithAssignments[]> {
+  const { data, error } = await excludePausedOccurrences(
+    supabase
+      .from("jobs")
+      .select(JOB_SELECT)
+      .eq("job_type", "single")
+      .gte("date", fromDateKey)
+      .lte("date", toDateKey),
+  )
+    .order("date", { ascending: true })
+    .order("start_time", { ascending: true })
+
+  if (error) throw error
+  return (data ?? []) as unknown as JobWithAssignments[]
+}
+
 // Ausführbare Aufträge, denen ein Mitarbeiter zugewiesen ist (Zuweisungsmenge,
 // nicht Legacy-Zeiger) — serverseitiger Filter wie Mobiles applyEmployeeFilter.
 export async function getExecutableJobsForEmployee(

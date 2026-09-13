@@ -23,38 +23,18 @@ import {
   type EmployeeOption,
   type JobWithAssignments,
 } from "@/lib/jobs/jobs.service"
+import {
+  STATUS_DOT,
+  STATUS_LABEL,
+  STATUS_PILL_ACTIVE as PILL_ACTIVE,
+  STATUS_VARIANT,
+} from "@/lib/jobs/statusMeta"
 import { cn } from "@/lib/utils"
 
 type Job = JobWithAssignments
 type StatusFilter = "all" | "open" | "in_progress" | "completed"
 // Wie Mobiles EmployeeSelection: "all" | "unassigned" | <employeeId>.
 type EmployeeSelection = "all" | "unassigned" | string
-
-const STATUS_LABEL: Record<string, string> = {
-  open:        "Offen",
-  in_progress: "In Arbeit",
-  completed:   "Erledigt",
-}
-
-const STATUS_VARIANT: Record<string, "warning" | "info" | "success"> = {
-  open:        "warning",
-  in_progress: "info",
-  completed:   "success",
-}
-
-const STATUS_DOT: Record<string, string> = {
-  open:        "bg-amber-400",
-  in_progress: "bg-blue-500",
-  completed:   "bg-emerald-500",
-}
-
-// Aktive Pill-Töne je Filter (inaktiv = ruhiges gray-100).
-const PILL_ACTIVE: Record<StatusFilter, string> = {
-  all:         "bg-primary/10 text-primary ring-1 ring-inset ring-primary/15",
-  open:        "bg-amber-50 text-amber-700 ring-1 ring-inset ring-amber-200",
-  in_progress: "bg-blue-50 text-blue-700 ring-1 ring-inset ring-blue-200",
-  completed:   "bg-emerald-50 text-emerald-700 ring-1 ring-inset ring-emerald-200",
-}
 
 function formatDate(iso: string | null) {
   if (!iso) return "—"
