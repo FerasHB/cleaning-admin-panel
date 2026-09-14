@@ -22,8 +22,10 @@ export type UseAdminJobsResult = {
   loading: boolean
   error: string | null
   counts: AdminJobCounts
-  // Ungelesene Kommentare — wie Mobiles JobContext.refreshJobs() über den
-  // gleichen Kanal/Debounce aktualisiert, kein eigenes Abonnement.
+  // Ungelesene Kommentare — aktualisiert über jobs-Realtime-Events (gleicher
+  // Kanal/Debounce wie die Liste) UND ein eigenes leichtgewichtiges
+  // Poll-Intervall, da ein reiner Kommentar-Schreibvorgang kein jobs-Event
+  // auslöst (job_comments ist nicht realtime-publiziert).
   unreadJobIds: Set<string>
 }
 
@@ -44,6 +46,15 @@ function deriveCounts(jobs: JobWithAssignments[]): AdminJobCounts {
 // eines Speichervorgangs) zu EINEM Nachladen zusammenzufassen.
 const REALTIME_REFETCH_DEBOUNCE_MS = 400
 
+// job_comments ist NICHT Teil der supabase_realtime-Publication (siehe
+// hooks/use-job-detail-realtime.ts) — ein reiner Kommentar-Schreibvorgang
+// löst daher KEIN jobs-Event aus und die Ungelesen-Menge oben würde sonst
+// erst beim nächsten jobs-Event oder vollständigen Neuladen der Seite
+// auffrischen. Gleiches leichtgewichtiges Poll-Intervall wie in der
+// Detailansicht, NUR für get_unread_comment_job_ids — keine neue
+// Backend-Anfrage, kein Ersatz für die RLS-/RPC-Quelle der Wahrheit.
+const UNREAD_POLL_INTERVAL_MS = 20_000
+
 export function useAdminJobs(): UseAdminJobsResult {
   const [supabase] = useState(() => createClient())
   const [jobs, setJobs] = useState<JobWithAssignments[]>([])
@@ -54,6 +65,17 @@ export function useAdminJobs(): UseAdminJobsResult {
   useEffect(() => {
     let mounted = true
     let debounce: ReturnType<typeof setTimeout> | null = null
+
+    // Ungelesene Kommentare separat laden (best-effort, wie Mobile) — ein
+    // Fehler hier darf die Jobliste nicht blockieren.
+    const fetchUnread = async () => {
+      try {
+        const unread = await getUnreadCommentJobIds(supabase)
+        if (mounted) setUnreadJobIds(unread)
+      } catch {
+        // still
+      }
+    }
 
     const fetchJobs = async () => {
       try {
@@ -67,14 +89,7 @@ export function useAdminJobs(): UseAdminJobsResult {
       } finally {
         if (mounted) setLoading(false)
       }
-      // Ungelesene Kommentare separat laden (best-effort, wie Mobile) — ein
-      // Fehler hier darf die Jobliste nicht blockieren.
-      try {
-        const unread = await getUnreadCommentJobIds(supabase)
-        if (mounted) setUnreadJobIds(unread)
-      } catch {
-        // still
-      }
+      await fetchUnread()
     }
 
     fetchJobs()
@@ -92,9 +107,16 @@ export function useAdminJobs(): UseAdminJobsResult {
       })
       .subscribe()
 
+    // Fallback nur für Ungelesen-Status: ein reiner Kommentar-Schreibvorgang
+    // löst kein jobs-Event aus (s. o.), daher hier ein eigenes, von der
+    // Job-Liste unabhängiges Poll-Intervall statt eines weiteren
+    // Realtime-Kanals.
+    const unreadInterval = setInterval(fetchUnread, UNREAD_POLL_INTERVAL_MS)
+
     return () => {
       mounted = false
       if (debounce) clearTimeout(debounce)
+      clearInterval(unreadInterval)
       supabase.removeChannel(channel)
     }
   }, [supabase])
