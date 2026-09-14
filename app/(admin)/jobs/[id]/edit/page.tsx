@@ -9,6 +9,7 @@ import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardFooter } from "@/components/ui/card"
 import { EmptyState } from "@/components/ui/empty-state"
 import { ArrowLeft, Briefcase, Trash2 } from "lucide-react"
+import { cn } from "@/lib/utils"
 import { JobFormFields } from "@/components/jobs/JobFormFields"
 import { EmployeeMultiSelect } from "@/components/jobs/EmployeeMultiSelect"
 import { AbsenceWarningPanel } from "@/components/jobs/AbsenceWarningPanel"
@@ -51,6 +52,7 @@ export default function EditJobPage() {
 
   const [saving, setSaving] = useState(false)
   const [deleting, setDeleting] = useState(false)
+  const [confirmingDelete, setConfirmingDelete] = useState(false)
   const [message, setMessage] = useState<{ tone: "error" | "warning"; text: string } | null>(null)
   const { guardSave, warning, confirmWarning, dismissWarning } =
     useAssignmentAbsenceGuard(supabase)
@@ -185,11 +187,9 @@ export default function EditJobPage() {
   }
 
   const handleDelete = async () => {
-    if (!job) return
-    if (!confirm("Auftrag wirklich löschen? Diese Aktion kann nicht rückgängig gemacht werden.")) {
-      return
-    }
+    if (!job || deleting) return
 
+    setConfirmingDelete(false)
     setDeleting(true)
     setMessage(null)
     try {
@@ -242,11 +242,44 @@ export default function EditJobPage() {
           <PageHeader title="Auftrag bearbeiten" />
         </div>
 
-        <Button variant="destructive" onClick={handleDelete} disabled={busy}>
+        <Button
+          variant="destructive"
+          onClick={() => setConfirmingDelete(true)}
+          disabled={busy || confirmingDelete}
+        >
           <Trash2 className="mr-2 h-4 w-4" />
           {deleting ? "Wird gelöscht…" : "Auftrag löschen"}
         </Button>
       </div>
+
+      {/* ── Sicherheitsabfrage Löschen ── */}
+      {confirmingDelete && (
+        <div
+          role="alertdialog"
+          aria-labelledby="delete-job-title"
+          className={cn("rounded-xl border p-4", "border-destructive/30 bg-destructive/5")}
+        >
+          <p id="delete-job-title" className="text-sm font-semibold text-foreground">
+            Auftrag wirklich löschen?
+          </p>
+          <p className="mt-1 text-sm text-muted-foreground">
+            Diese Aktion kann nicht rückgängig gemacht werden. Der Auftrag wird endgültig entfernt.
+          </p>
+          <div className="mt-3 flex gap-2">
+            <Button size="sm" variant="destructive" onClick={handleDelete} disabled={deleting}>
+              {deleting ? "Wird gelöscht…" : "Endgültig löschen"}
+            </Button>
+            <Button
+              size="sm"
+              variant="outline"
+              onClick={() => setConfirmingDelete(false)}
+              disabled={deleting}
+            >
+              Abbrechen
+            </Button>
+          </div>
+        </div>
+      )}
 
       <Card>
         <form onSubmit={handleSubmit} noValidate>

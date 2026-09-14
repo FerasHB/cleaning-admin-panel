@@ -13,6 +13,14 @@ import {
   type JobPhoto,
 } from "@/lib/photos/photos.service"
 
+// Signed URLs laufen nach SIGNED_URL_EXPIRES_IN (1 Stunde, siehe
+// lib/photos/photos.service.ts) ab. Eine dauerhaft offen gelassene
+// Detailseite würde sonst nach Ablauf defekte Bilder zeigen, ohne dass ein
+// erneutes Laden/Neuladen ausgelöst wird. Deshalb hier ein Auffrisch-Timer,
+// der DEUTLICH vor Ablauf neu lädt (nur Metadaten + neue Signed URLs, kein
+// Reupload) — 45 Minuten Puffer auf eine 60-Minuten-TTL.
+const SIGNED_URL_REFRESH_INTERVAL_MS = 45 * 60 * 1000
+
 export function useJobPhotos(jobId: string) {
   const supabase = useRef(createClient()).current
   const [photos, setPhotos] = useState<JobPhoto[]>([])
@@ -38,6 +46,12 @@ export function useJobPhotos(jobId: string) {
   useEffect(() => {
     setLoading(true)
     load()
+
+    // Auffrischen VOR Ablauf der Signed URLs, damit eine lange offen
+    // gelassene Detailseite keine defekten Bilder zeigt. Läuft im
+    // Hintergrund (kein setLoading), damit die Galerie dabei nicht flackert.
+    const interval = setInterval(load, SIGNED_URL_REFRESH_INTERVAL_MS)
+    return () => clearInterval(interval)
   }, [load])
 
   // Lädt ein Foto hoch und legt die company_id aus dem Profil des

@@ -16,6 +16,7 @@ import { Notice } from "@/components/auth/AuthShell"
 import { SectionCard } from "@/components/dashboard/SectionCard"
 import { EmptyState } from "@/components/ui/empty-state"
 import { ArrowLeft, CalendarOff, CheckCircle2, Stethoscope, XCircle } from "lucide-react"
+import { cn } from "@/lib/utils"
 import {
   getAbsenceById,
   getAbsenceEvidence,
@@ -63,6 +64,7 @@ export default function AuReviewPage() {
   const [notFound, setNotFound] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [reviewBusy, setReviewBusy] = useState(false)
+  const [pendingDecision, setPendingDecision] = useState<"confirmed" | "rejected" | null>(null)
 
   const [values, setValues] = useState<Record<string, string>>({})
   const [restoreError, setRestoreError] = useState<string | null>(null)
@@ -111,6 +113,7 @@ export default function AuReviewPage() {
 
   const handleReview = async (decision: "confirmed" | "rejected") => {
     if (reviewBusy) return
+    setPendingDecision(null)
     setReviewBusy(true)
     setError(null)
     try {
@@ -216,7 +219,12 @@ export default function AuReviewPage() {
           </p>
           {evidence?.note && <p className="text-sm text-muted-foreground">Notiz: {evidence.note}</p>}
           <div className="flex gap-2">
-            <Button size="sm" className="gap-1.5" onClick={() => void handleReview("confirmed")} disabled={reviewBusy}>
+            <Button
+              size="sm"
+              className="gap-1.5"
+              onClick={() => setPendingDecision("confirmed")}
+              disabled={reviewBusy || pendingDecision !== null}
+            >
               <CheckCircle2 className="h-3.5 w-3.5" />
               AU bestätigen
             </Button>
@@ -224,13 +232,60 @@ export default function AuReviewPage() {
               size="sm"
               variant="outline"
               className="gap-1.5 text-destructive hover:text-destructive"
-              onClick={() => void handleReview("rejected")}
-              disabled={reviewBusy}
+              onClick={() => setPendingDecision("rejected")}
+              disabled={reviewBusy || pendingDecision !== null}
             >
               <XCircle className="h-3.5 w-3.5" />
               AU ablehnen
             </Button>
           </div>
+
+          {/* ── Sicherheitsabfrage AU-Prüfung ── */}
+          {pendingDecision && (
+            <div
+              role="alertdialog"
+              aria-labelledby="au-review-confirm-title"
+              className={cn(
+                "rounded-xl border p-4",
+                pendingDecision === "confirmed"
+                  ? "border-primary/20 bg-primary/5"
+                  : "border-destructive/30 bg-destructive/5",
+              )}
+            >
+              <p id="au-review-confirm-title" className="text-sm font-semibold text-foreground">
+                {pendingDecision === "confirmed" ? "AU wirklich bestätigen?" : "AU wirklich ablehnen?"}
+              </p>
+              <p className="mt-1 text-sm text-muted-foreground">
+                {absence.employeeName} · {formatDayMonthYear(absence.startDate)}
+                {absence.endDate ? ` – ${formatDayMonthYear(absence.endDate)}` : " (offen)"}
+                {pendingDecision === "confirmed"
+                  ? " — erst danach können abgezogene Urlaubstage zurückgegeben werden."
+                  : " — die Krankmeldung bleibt bestehen, es wird aber kein Urlaub zurückgegeben."}
+              </p>
+              <div className="mt-3 flex gap-2">
+                <Button
+                  size="sm"
+                  variant={pendingDecision === "confirmed" ? "default" : "destructive"}
+                  onClick={() => void handleReview(pendingDecision)}
+                  disabled={reviewBusy}
+                >
+                  {reviewBusy
+                    ? "Wird gespeichert…"
+                    : pendingDecision === "confirmed"
+                      ? "AU bestätigen"
+                      : "AU ablehnen"}
+                </Button>
+                <Button
+                  size="sm"
+                  variant="outline"
+                  onClick={() => setPendingDecision(null)}
+                  disabled={reviewBusy}
+                >
+                  Abbrechen
+                </Button>
+              </div>
+            </div>
+          )}
         </div>
       </SectionCard>
 
